@@ -121,6 +121,8 @@ export interface StereoSettings {
 	showShareButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
+	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
+	restoreOpenViews: boolean;
 	/** Show 1–5 star ratings in track lists. */
 	showRating: boolean;
 	/** Show rating and favorite controls in the album-art corners. */
@@ -168,6 +170,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showStationButton: true,
 	showShareButton: true,
 	repeatShuffleInTransport: false,
+	restoreOpenViews: true,
 	showRating: false,
 	showArtOverlays: true,
 	showRatingButton: true,
@@ -465,6 +468,17 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Repeat and shuffle in transport row",
 						desc: "Place repeat to the left of Previous and shuffle to the right of Next, using the transport button size. When off, both stay in the extras row.",
 						control: { type: "toggle", key: "repeatShuffleInTransport" },
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Workspace",
+				items: [
+					{
+						name: "Restore open players",
+						desc: "Reopen every Stereo pane that was open in the left or right sidebar when the plugin was disabled. Obsidian already restores the layout after a normal app restart.",
+						control: { type: "toggle", key: "restoreOpenViews" },
 					},
 				],
 			},

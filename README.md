@@ -34,7 +34,11 @@ your notes.
 - The extras row fits the pane width: buttons stay at their historical maximum
   and shrink together when space is tight.
 - Media keys and the system playback overlay control Stereo and show the
-  current track.
+  current track. The command palette can also open the player in a separate
+  desktop window.
+- Remembers Stereo panes in the left and right sidebars when the plugin is
+  disabled and enabled again. Automatic restoration is controlled by
+  **Workspace → Restore open players**.
 - Scrobbles plays back to your server so play counts stay accurate.
 
 **Library**
@@ -101,8 +105,9 @@ your notes.
 
 Settings also cover player buttons (random, repeat, shuffle, favorite, add to
 playlist, station, share, volume, and whether repeat/shuffle sit in the
-transport row), star ratings and cover overlays, track click behavior, sharing,
-Now Playing view, lyrics font, and search tuning.
+transport row), sidebar pane restoration, star ratings and cover overlays,
+track click behavior, sharing, Now Playing view, lyrics font, and search
+tuning.
 
 ## Requirements
 

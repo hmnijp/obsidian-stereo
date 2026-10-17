@@ -15,7 +15,12 @@ const result = await build({
 				async saveData(data) { this.writes.push(structuredClone(data)); }
 				registerView() {} addSettingTab() {} addRibbonIcon() {} addCommand() {}
 			}
-			export class Notice {} export class WorkspaceLeaf {}
+			export class Notice {}
+			export class WorkspaceLeaf {
+				constructor(app) { this.app = app; this.state = null; this.parent = null; }
+				getViewState() { return this.state ?? { type: "empty", state: {} }; }
+				async setViewState(state) { this.state = state; }
+			}
 			export class App {} export class PluginSettingTab {
 				containerEl = { addClass() {} };
 				constructor() {}
@@ -70,6 +75,123 @@ test("plugin loads legacy data and saves current queue alongside history before 
 		assert.equal(restarted.player.getState().playing, false);
 		assert.equal(restarted.writes.length, 0);
 	}
+});
+
+test("remembered sidebar views persist and ignore invalid entries", async (t) => {
+	const openViews = [
+		{ side: "left", path: [1], tab: 0 },
+		{ side: "right", path: [0], tab: 2 },
+		{ side: "left", path: [0, 1], tab: 1 },
+	];
+	const plugin = await setup(t, {
+		settings,
+		openViews: [
+			...openViews,
+			{ side: "main", path: [0], tab: 0 },
+			{ side: "left", path: [-1], tab: 0 },
+		],
+		lastViewSide: "left",
+	});
+	await plugin.saveSettings();
+	const saved = plugin.writes.at(-1);
+	assert.deepEqual(saved.openViews, openViews);
+	assert.equal(saved.lastViewSide, "left");
+
+	const restarted = await setup(t, saved);
+	await restarted.saveSettings();
+	const again = restarted.writes.at(-1);
+	assert.deepEqual(again.openViews, openViews);
+	assert.equal(again.lastViewSide, "left");
+});
+
+test("sidebar side detection walks the workspace parent chain", async (t) => {
+	const plugin = await setup(t, { settings });
+	const leftSplit = {};
+	const rightSplit = {};
+	plugin.app.workspace = { leftSplit, rightSplit };
+	assert.equal(
+		plugin.sideOfLeaf({ parent: { parent: leftSplit } }),
+		"left"
+	);
+	assert.equal(plugin.sideOfLeaf({ parent: rightSplit }), "right");
+	assert.equal(plugin.sideOfLeaf({ parent: {} }), null);
+});
+
+test("saved sidebar view keeps its split and tab indexes", async (t) => {
+	const plugin = await setup(t, { settings });
+	const leftSplit = { children: [] };
+	const split = { parent: leftSplit, children: [] };
+	const tabs = { parent: split, children: [] };
+	const leaf = { parent: tabs, children: [] };
+	leftSplit.children.push(split);
+	split.children.push(tabs);
+	tabs.children.push(leaf);
+	plugin.app.workspace = {
+		leftSplit,
+		rightSplit: { children: [] },
+	};
+
+	assert.deepEqual(plugin.savedViewForLeaf(leaf), {
+		side: "left",
+		path: [0, 0],
+		tab: 0,
+	});
+});
+
+test("restores a saved view as a tab in its original group", async (t) => {
+	const plugin = await setup(t, { settings });
+	const leftSplit = { children: [] };
+	const makeGroup = () => {
+		const group = { parent: leftSplit, children: [] };
+		group.insertChild = (index, leaf) => {
+			group.children.splice(index, 0, leaf);
+			leaf.parent = group;
+		};
+		group.selectTabIndex = (index) => {
+			group.currentTab = index;
+		};
+		return group;
+	};
+	const first = makeGroup();
+	const second = makeGroup();
+	leftSplit.children.push(first, second);
+	const rightSplit = { children: [] };
+	const iterate = (root, callback) => {
+		for (const group of root.children) {
+			for (const leaf of group.children) callback(leaf);
+		}
+	};
+	plugin.app.workspace = {
+		leftSplit,
+		rightSplit,
+		iterateAllLeaves(callback) {
+			iterate(leftSplit, callback);
+			iterate(rightSplit, callback);
+		},
+	};
+	plugin.openViews = [{ side: "left", path: [1], tab: 0 }];
+
+	await plugin.restoreSavedViews();
+
+	assert.equal(second.children.length, 1);
+	assert.deepEqual(second.children[0].state, {
+		type: "stereo-player",
+		active: false,
+	});
+	assert.equal(second.currentTab, 0);
+	assert.equal(first.children.length, 0);
+});
+
+test("last sidebar side falls back to a remembered side", async (t) => {
+	const plugin = await setup(t, {
+		settings,
+		openViews: [{ side: "right", path: [0], tab: 0 }],
+		lastViewSide: "left",
+	});
+	await plugin.saveSettings();
+	const saved = plugin.writes.at(-1);
+	assert.deepEqual(saved.openViews, [{ side: "right", path: [0], tab: 0 }]);
+	assert.equal(saved.lastViewSide, "right");
 });
 
 test("legacy full-URL history identity migrates to the host identity", async (t) => {

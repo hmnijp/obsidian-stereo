@@ -46,6 +46,9 @@ your notes.
   artist/album, favorite, start station, share.
 - Favorites synced with your server — heart tracks, albums, and artists from
   the player, menus, or detail pages, and browse them all on a Favorites page.
+  Track rows in albums, playlists, search, history, and the queue have their own
+  heart: filled favorites stay visible, outline controls appear on hover, and
+  every open list and both players update together.
 - Share links for tracks, albums, playlists, artists, and the current queue.
   Links use original files; choose a lifetime and optional downloads, then copy
   the public URL. Right-click the player's share button to share the current

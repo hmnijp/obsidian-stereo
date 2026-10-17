@@ -1,4 +1,5 @@
 import { debounce, prepareFuzzySearch, setIcon } from "obsidian";
+import { createSongHeart } from "./favorite-button";
 import type { LibraryPane } from "./library";
 import type StereoPlugin from "./main";
 import type { Album, Artist, Song } from "./subsonic";
@@ -185,6 +186,18 @@ export class SearchPane {
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
 		meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
 		meta.createDiv({ cls: "stereo-list-row-sub", text: song.artist ?? "" });
+		createSongHeart(
+			row,
+			song,
+			this.plugin.favorites,
+			(target) => this.plugin.toggleSongFavorite(target)
+		);
+		if (song.duration) {
+			row.createSpan({
+				cls: "stereo-list-row-duration",
+				text: formatDuration(song.duration),
+			});
+		}
 		row.addEventListener("click", () => {
 			switch (this.plugin.settings.trackClickAction) {
 				case "play":
@@ -238,4 +251,11 @@ function rank<T>(
 		.sort((a, b) => b.score - a.score || a.order - b.order)
 		.slice(0, limit)
 		.map((entry) => entry.item);
+}
+
+function formatDuration(totalSeconds: number): string {
+	const seconds = Math.max(0, Math.floor(totalSeconds));
+	const minutes = Math.floor(seconds / 60);
+	const rest = seconds % 60;
+	return `${minutes}:${String(rest).padStart(2, "0")}`;
 }

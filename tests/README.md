@@ -28,6 +28,11 @@ and Next, appending only at its end during manual and natural progression,
 repeat-one inside random, pending-fetch cancellation, fetch failures, explicit
 playback turning random off, and safe snapshot restoration.
 
+Favorite coverage checks learning statuses from list/queue data, explicit
+star/unstar toggles, stale copies being overridden by local state, failed
+requests leaving the previous state untouched, connection changes clearing the
+session index, radio entries skipping server calls, and subscriber cleanup.
+
 Live verification for issue #1 (2026-09-05, Obsidian with Navidrome):
 
 - DOM drag moved a duplicate across the current occurrence without reloading

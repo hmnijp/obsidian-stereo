@@ -6,6 +6,7 @@ import {
 	PlaylistPickerModal,
 	RadioStationModal,
 } from "./modals";
+import { createSongHeart } from "./favorite-button";
 import { SubsonicError } from "./subsonic";
 import type StereoPlugin from "./main";
 import type { QueueOrigin } from "./player";
@@ -315,6 +316,12 @@ export class LibraryPane extends Component {
 		this.push({ kind: "favorites" });
 	}
 
+	/** Remove an unstarred row immediately while the Favorites page is open. */
+	refreshFavoritesIfOpen(): void {
+		if (this.stack[this.stack.length - 1]?.kind !== "favorites") return;
+		this.render();
+	}
+
 	private pageTitle(page: Page): string {
 		if (page.kind === "root") return "";
 		if (page.kind === "favorites") return "Favorites";
@@ -357,7 +364,9 @@ export class LibraryPane extends Component {
 			meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
 			meta.createDiv({ cls: "stereo-list-row-sub", text: song.artist ?? "Unknown artist" });
 			const date = new Date(playedAt);
-			meta.createEl("time", {
+			const metaLine = meta.createDiv({ cls: "stereo-history-meta-line" });
+			this.songHeart(metaLine, song);
+			metaLine.createEl("time", {
 				cls: "stereo-list-row-sub", text: date.toLocaleString(),
 				attr: { datetime: date.toISOString() },
 			});
@@ -599,6 +608,7 @@ export class LibraryPane extends Component {
 		const result = await this.loadPage(() => this.plugin.client.getStarred2());
 		if (!result) return;
 		const { artists, albums, songs } = result;
+		this.plugin.favorites.learnSongs(songs);
 
 		if (artists.length === 0 && albums.length === 0 && songs.length === 0) {
 			this.emptyStatus(
@@ -805,6 +815,16 @@ export class LibraryPane extends Component {
 		return button;
 	}
 
+	/** Row-level favorite toggle backed by the shared session index. */
+	private songHeart(parent: HTMLElement, song: Song): void {
+		createSongHeart(
+			parent,
+			song,
+			this.plugin.favorites,
+			(target) => this.plugin.toggleSongFavorite(target)
+		);
+	}
+
 	/** Heart toggle for detail-page headers; keeps its own filled state fresh. */
 	private heartButton(
 		parent: HTMLElement,
@@ -812,7 +832,7 @@ export class LibraryPane extends Component {
 		toggle: () => Promise<void>
 	): void {
 		const button = parent.createEl("button", {
-			cls: "stereo-button clickable-icon",
+			cls: "stereo-button clickable-icon stereo-heart-button",
 		});
 		setIcon(button, "heart");
 		const sync = () => {
@@ -957,6 +977,7 @@ export class LibraryPane extends Component {
 		if (!options.hideArtist) {
 			meta.createDiv({ cls: "stereo-list-row-sub", text: song.artist ?? "" });
 		}
+		this.songHeart(row, song);
 		if (song.duration) {
 			row.createSpan({
 				cls: "stereo-list-row-duration",
@@ -1066,11 +1087,15 @@ export class LibraryPane extends Component {
 		menu.addSeparator();
 		menu.addItem((item) =>
 			item
-				.setTitle(song.starred ? "Remove from favorites" : "Add to favorites")
+				.setTitle(
+					this.plugin.favorites.isStarred(song)
+						? "Remove from favorites"
+						: "Add to favorites"
+				)
 				.setIcon("heart")
 				.onClick(async () => {
 					try {
-						song.starred = await this.plugin.toggleSongFavorite(song);
+						await this.plugin.toggleSongFavorite(song);
 					} catch {
 						new Notice("Could not update favorites on the server.");
 					}

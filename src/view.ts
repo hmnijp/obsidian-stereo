@@ -10,6 +10,7 @@ import radioTowerSvg from "../radio-tower.svg";
 import boomboxSvg from "../boombox.svg";
 import stereoBoomboxSvg from "../stereo-boombox.svg";
 import { getLyrics, type Lyrics } from "./lyrics";
+import { createSongHeart, syncSongHeart } from "./favorite-button";
 import { LibraryPane } from "./library";
 import { PlaylistNameModal, PlaylistSharePickerModal } from "./modals";
 import { SearchPane } from "./search";
@@ -311,6 +312,13 @@ export class StereoView extends ItemView {
 		this.setActiveTab("nowPlaying");
 		this.applyNowPlayingView();
 		this.syncShareUi();
+		this.register(
+			this.plugin.favorites.subscribe(() => {
+				this.syncSongHearts();
+				this.library.refreshFavoritesIfOpen();
+				this.render(this.plugin.player.getState());
+			})
+		);
 		this.unsubscribe = this.plugin.player.subscribe((state) => {
 			this.render(state);
 		});
@@ -1107,6 +1115,7 @@ export class StereoView extends ItemView {
 				new Notice("Could not update favorites on the server.");
 			});
 		});
+		this.favoriteButton.addClass("stereo-heart-button");
 
 		this.errorEl = page.createDiv({ cls: "stereo-error" });
 	}
@@ -1655,6 +1664,7 @@ export class StereoView extends ItemView {
 			}
 		);
 		this.miniFavoriteButton.addClass("stereo-mini-heart");
+		this.miniFavoriteButton.addClass("stereo-heart-button");
 
 		// Bottom row: elapsed · seek · transport.
 		const bottom = this.miniEl.createDiv({ cls: "stereo-mini-bottom" });
@@ -1769,6 +1779,23 @@ export class StereoView extends ItemView {
 		return button;
 	}
 
+	/** Row-level favorite toggle backed by the shared session index. */
+	private songHeart(parent: HTMLElement, song: Song): void {
+		createSongHeart(
+			parent,
+			song,
+			this.plugin.favorites,
+			(target) => this.plugin.toggleSongFavorite(target)
+		);
+	}
+
+	/** Refresh every row heart currently mounted in the view. */
+	private syncSongHearts(): void {
+		this.contentEl
+			.querySelectorAll<HTMLButtonElement>(".stereo-song-heart")
+			.forEach((button) => syncSongHeart(button, this.plugin.favorites));
+	}
+
 	// --- rendering ---
 
 	/** Right-hand seek time counts down; empty duration shows a plain 0:00. */
@@ -1788,6 +1815,9 @@ export class StereoView extends ItemView {
 		}
 
 		this.renderArt(state);
+		const currentStarred = state.track
+			? this.plugin.favorites.isStarred(state.track)
+			: false;
 
 		this.titleEl.setText(state.track?.title ?? "Nothing playing");
 		this.artistEl.setText(state.track?.artist ?? "");
@@ -1821,17 +1851,17 @@ export class StereoView extends ItemView {
 		this.miniFavoriteButton.disabled = !state.track || !!state.track.streamUrl;
 		this.miniFavoriteButton.toggleClass(
 			"stereo-button-active",
-			!!state.track?.starred
+			currentStarred
 		);
 		this.miniFavoriteButton.setAttribute(
 			"aria-label",
-			state.track?.starred ? "Remove from favorites" : "Add to favorites"
+			currentStarred ? "Remove from favorites" : "Add to favorites"
 		);
 		this.favoriteButton.disabled = !state.track || !!state.track.streamUrl;
-		this.favoriteButton.toggleClass("stereo-button-active", !!state.track?.starred);
+		this.favoriteButton.toggleClass("stereo-button-active", currentStarred);
 		this.favoriteButton.setAttribute(
 			"aria-label",
-			state.track?.starred ? "Remove from favorites" : "Add to favorites"
+			currentStarred ? "Remove from favorites" : "Add to favorites"
 		);
 		this.trackShareButton.disabled = !state.track || !!state.track.streamUrl;
 		this.trackShareButton.toggleClass(
@@ -1966,6 +1996,7 @@ export class StereoView extends ItemView {
 			const meta = row.createDiv({ cls: "stereo-queue-row-meta" });
 			meta.createDiv({ cls: "stereo-queue-row-title", text: song.title });
 			meta.createDiv({ cls: "stereo-queue-row-artist", text: song.artist ?? "" });
+			this.songHeart(row, song);
 		});
 
 		if (center && state.index >= 0) {
@@ -2066,6 +2097,14 @@ export class StereoView extends ItemView {
 			const meta = row.createDiv({ cls: "stereo-queue-row-meta" });
 			meta.createDiv({ cls: "stereo-queue-row-title", text: song.title });
 			meta.createDiv({ cls: "stereo-queue-row-artist", text: song.artist ?? "" });
+
+			this.songHeart(row, song);
+			if (song.duration) {
+				row.createSpan({
+					cls: "stereo-queue-row-duration",
+					text: formatTime(song.duration),
+				});
+			}
 
 			const removeButton = row.createEl("button", {
 				cls: "stereo-button clickable-icon stereo-queue-row-remove",

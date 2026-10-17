@@ -805,6 +805,56 @@
 	color: var(--interactive-accent);
 }
 
+/* Filled heart in both players and detail headers; row hearts share the fill. */
+.stereo-heart-button svg {
+	fill: transparent;
+	transition: fill 120ms ease;
+}
+
+.stereo-heart-button.stereo-button-active svg,
+.stereo-heart-button.stereo-button-active svg path {
+	fill: currentColor;
+}
+
+/* Per-row favorite control. Inactive hearts stay quiet until the row is
+   hovered or the button receives keyboard focus; active hearts stay visible. */
+.stereo-button.stereo-song-heart {
+	flex-shrink: 0;
+	width: 20px;
+	height: 20px;
+	padding: 2px;
+	color: var(--text-faint);
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 120ms ease, color 120ms ease;
+}
+
+.stereo-button.stereo-song-heart svg {
+	width: 16px;
+	height: 16px;
+}
+
+.stereo-list-row:hover .stereo-song-heart,
+.stereo-queue-row:hover .stereo-song-heart,
+.stereo-song-heart:focus-visible {
+	opacity: 1;
+	pointer-events: auto;
+}
+
+.stereo-song-heart.stereo-button-active {
+	opacity: 1;
+	pointer-events: auto;
+	color: var(--interactive-accent);
+}
+
+.stereo-song-heart:hover {
+	color: var(--text-normal);
+}
+
+.stereo-song-heart.stereo-button-active:hover {
+	color: var(--interactive-accent);
+}
+
 
 /* Errors */
 
@@ -931,6 +981,14 @@
 	height: 14px;
 }
 
+.stereo-queue-row-duration {
+	flex-shrink: 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	white-space: nowrap;
+	font-variant-numeric: tabular-nums;
+}
+
 .stereo-queue-row-meta {
 	flex: 1;
 	min-width: 0;
@@ -969,6 +1027,19 @@
 .stereo-history-row {
 	cursor: default;
 	flex-shrink: 0;
+}
+
+.stereo-history-meta-line {
+	display: flex;
+	align-items: center;
+	gap: var(--size-2-2);
+	min-width: 0;
+}
+
+.stereo-history-meta-line time {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 
 .stereo-history-cover {

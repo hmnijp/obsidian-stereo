@@ -108,6 +108,19 @@ export class HistoryStore {
 		this.changed();
 	}
 
+	/** Patch every stored copy of a song (e.g. when its favorite state changes). */
+	updateSong(id: string, patch: Partial<Song>): void {
+		let changed = false;
+		const entries = this.entries.map((entry) => {
+			if (entry.song.id !== id) return entry;
+			changed = true;
+			return { ...entry, song: { ...entry.song, ...patch } };
+		});
+		if (!changed) return;
+		this.entries = entries;
+		this.changed();
+	}
+
 	clear(): void {
 		this.entries = [];
 		this.changed();

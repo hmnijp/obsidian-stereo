@@ -1,5 +1,6 @@
 import { Notice, Plugin, WorkspaceLeaf, debounce } from "obsidian";
 import { ConnectionManager } from "./connection";
+import { FavoritesIndex } from "./favorites";
 import { PlayerSnapshot, PlayerStore } from "./player";
 import { historyConnection, legacyHistoryConnection, type HistorySnapshot } from "./history";
 import {
@@ -33,6 +34,10 @@ export default class StereoPlugin extends Plugin {
 		this.connection
 	);
 	player: PlayerStore = new PlayerStore(this.client, () => this.settings);
+	favorites: FavoritesIndex = new FavoritesIndex(
+		this.client,
+		() => historyConnection(this.settings)
+	);
 
 	private playerState: PlayerSnapshot | undefined;
 	private pendingSave: Promise<void> = Promise.resolve();
@@ -46,6 +51,7 @@ export default class StereoPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadDataFile();
+		this.favorites.syncConnection();
 		this.connection.setProbe((url) => this.client.probe(url));
 		this.connection.start();
 
@@ -88,6 +94,7 @@ export default class StereoPlugin extends Plugin {
 		// Registered events/DOM listeners are cleaned up automatically.
 		this.connection.stop();
 		this.player.destroy();
+		this.favorites.destroy();
 		this.savePlayerState.cancel();
 		void this.saveAll();
 	}
@@ -98,13 +105,9 @@ export default class StereoPlugin extends Plugin {
 	 * copies. Throws on server failure.
 	 */
 	async toggleSongFavorite(song: Song): Promise<string | undefined> {
-		const starred = song.starred ? undefined : new Date().toISOString();
-		if (song.starred) {
-			await this.client.unstar({ id: song.id });
-		} else {
-			await this.client.star({ id: song.id });
-		}
+		const starred = await this.favorites.toggle(song);
 		this.player.updateSong(song.id, { starred });
+		this.player.history.updateSong(song.id, { starred });
 		return starred;
 	}
 
@@ -153,6 +156,7 @@ export default class StereoPlugin extends Plugin {
 		}
 		this.settings.activeServerId = id;
 		this.connection.reset();
+		this.favorites.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 		this.refreshAllViews();
@@ -174,6 +178,7 @@ export default class StereoPlugin extends Plugin {
 			this.settings.activeServerId = this.settings.servers[0]?.id ?? "";
 		}
 		this.connection.reset();
+		this.favorites.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 		this.refreshAllViews();
@@ -188,6 +193,7 @@ export default class StereoPlugin extends Plugin {
 			this.settings.activeServerId = this.settings.servers[0]?.id ?? "";
 		}
 		this.connection.reset();
+		this.favorites.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 		this.refreshAllViews();
@@ -291,6 +297,7 @@ export default class StereoPlugin extends Plugin {
 	 * so correcting a typo does not throw the current session away.
 	 */
 	async commitConnection(): Promise<void> {
+		this.favorites.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 	}

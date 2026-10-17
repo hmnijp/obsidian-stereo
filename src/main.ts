@@ -2,6 +2,12 @@ import { Notice, Plugin, WorkspaceLeaf, debounce } from "obsidian";
 import { PlayerSnapshot, PlayerStore } from "./player";
 import { historyConnection, type HistorySnapshot } from "./history";
 import { DEFAULT_SETTINGS, StereoSettings, StereoSettingTab } from "./settings";
+import {
+	ShareCreateModal,
+	SharesModal,
+	resolveQueueShareTarget,
+	type ShareTarget,
+} from "./share";
 import type { StationSeed } from "./station";
 import { Song, SubsonicClient } from "./subsonic";
 import { STEREO_VIEW_TYPE, StereoView } from "./view";
@@ -54,6 +60,14 @@ export default class StereoPlugin extends Plugin {
 				void this.activateView();
 			},
 		});
+
+		this.addCommand({
+			id: "manage-share-links",
+			name: "Manage share links",
+			callback: () => {
+				this.openShares();
+			},
+		});
 	}
 
 	onunload(): void {
@@ -102,6 +116,38 @@ export default class StereoPlugin extends Plugin {
 	refreshNowPlayingViews(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) leaf.view.applyNowPlayingView();
+		}
+	}
+
+	/** Open the share dialog for one library item or a queue snapshot. */
+	openShare(target: ShareTarget): void {
+		new ShareCreateModal(this.app, this, target).open();
+	}
+
+	/** Open the share-link manager. */
+	openShares(): void {
+		new SharesModal(this.app, this).open();
+	}
+
+	/** Resolve the current queue to its album/playlist source or a snapshot. */
+	async openShareQueue(): Promise<void> {
+		const state = this.player.getState();
+		const target = await resolveQueueShareTarget(
+			state.queue,
+			state.queueOrigin,
+			this.client
+		);
+		if (!target) {
+			new Notice("The queue has no shareable tracks.");
+			return;
+		}
+		this.openShare(target);
+	}
+
+	/** Update share-button visibility in every open player. */
+	syncShareUi(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) leaf.view.syncShareUi();
 		}
 	}
 

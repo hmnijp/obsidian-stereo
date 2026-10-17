@@ -97,6 +97,37 @@ export interface RadioStation {
 	homePageUrl?: string;
 }
 
+/** One entry inside a share, as returned by Navidrome's Subsonic getShares. */
+export interface ShareEntry {
+	id: string;
+	title: string;
+	name?: string;
+	artist?: string;
+	album?: string;
+	isDir?: boolean;
+	songCount?: number;
+}
+
+/** A public share link returned by the Subsonic sharing endpoints. */
+export interface ShareLink {
+	id: string;
+	url: string;
+	description?: string;
+	username: string;
+	created: string;
+	expires?: string;
+	lastVisited?: string;
+	visitCount?: number;
+	entry?: ShareEntry[];
+}
+
+export interface CreateShareOptions {
+	ids: string[];
+	description?: string;
+	expiresAt?: Date;
+	downloadable?: boolean;
+}
+
 /** One lyrics line; `start` is milliseconds into the track when time-synced. */
 export interface SubsonicLyricsLine {
 	start?: number;
@@ -195,13 +226,32 @@ export class SubsonicClient {
 	/** Perform a JSON request and unwrap the Subsonic envelope. */
 	private async request(
 		endpoint: string,
-		params: RequestParams = {}
+		params: RequestParams = {},
+		options: { method?: "GET" | "POST" } = {}
 	): Promise<SubsonicEnvelope["subsonic-response"]> {
-		const url = this.buildUrl(endpoint, params);
+		const method = options.method ?? "GET";
+		const url = this.buildUrl(endpoint, method === "POST" ? {} : params);
+
+		let formBody: string | undefined;
+		if (method === "POST") {
+			const form = new URLSearchParams();
+			for (const [key, value] of Object.entries(params)) {
+				for (const item of Array.isArray(value) ? value : [value]) {
+					form.append(key, String(item));
+				}
+			}
+			formBody = form.toString();
+		}
 
 		let response: RequestUrlResponse;
 		try {
-			response = await requestUrl({ url, throw: false });
+			response = await requestUrl({
+				url,
+				method,
+				body: formBody,
+				contentType: method === "POST" ? "application/x-www-form-urlencoded" : undefined,
+				throw: false,
+			});
 		} catch {
 			throw new SubsonicError("unreachable", "Could not reach the server.");
 		}
@@ -422,6 +472,51 @@ export class SubsonicClient {
 	/** Delete a radio station on the server. Requires an admin account. */
 	async deleteInternetRadioStation(id: string): Promise<void> {
 		await this.request("deleteInternetRadioStation", { id });
+	}
+
+	/** Public share links owned by the current account (all accounts for admins). */
+	async getShares(): Promise<ShareLink[]> {
+		const body = await this.request("getShares");
+		const payload = body.shares as
+			| { share?: ShareLink | ShareLink[] }
+			| undefined;
+		return toArray(payload?.share);
+	}
+
+	/**
+	 * Create a public share for one or more resources. Small lists use GET;
+	 * large queues switch to POST so their ids never hit a URL length limit.
+	 */
+	async createShare(options: CreateShareOptions): Promise<ShareLink> {
+		if (options.ids.length === 0) {
+			throw new SubsonicError("server", "There is nothing to share.");
+		}
+		const params: RequestParams = { id: options.ids };
+		if (options.description) params.description = options.description;
+		if (options.expiresAt) params.expires = options.expiresAt.getTime();
+		if (options.downloadable !== undefined) {
+			params.downloadable = String(options.downloadable);
+		}
+
+		const body = await this.request("createShare", params, {
+			method: options.ids.length > 25 ? "POST" : "GET",
+		});
+		const payload = body.shares as
+			| { share?: ShareLink | ShareLink[] }
+			| undefined;
+		const share = toArray(payload?.share)[0];
+		if (!share) {
+			throw new SubsonicError(
+				"server",
+				"The server did not return the created share."
+			);
+		}
+		return share;
+	}
+
+	/** Remove a public share link. */
+	async deleteShare(id: string): Promise<void> {
+		await this.request("deleteShare", { id });
 	}
 
 	/**

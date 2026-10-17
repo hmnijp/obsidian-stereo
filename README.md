@@ -36,9 +36,13 @@ your notes.
 - Browse albums, artists, playlists, and internet radio, with drill-in
   navigation (artist → album → track) and an A–Z scrubber for long lists.
 - Right-click context menus everywhere: play, play next, add to queue, go to
-  artist/album, favorite, start station.
+  artist/album, favorite, start station, share.
 - Favorites synced with your server — heart tracks, albums, and artists from
   the player, menus, or detail pages, and browse them all on a Favorites page.
+- Share links for tracks, albums, playlists, artists, and the current queue.
+  Links use original files; choose a lifetime and optional downloads, then copy
+  the public URL. Manage existing links from the link icon next to Favorites and
+  Recently played.
 - Manage internet radio stations from the player: add, edit, and remove
   (requires an admin account on the server).
 
@@ -65,7 +69,7 @@ your notes.
 3. Use **Test connection** to confirm the server is reachable, then open the
    player from the ribbon icon or the **Open player** command.
 
-Settings also cover track click behavior, Now Playing view, lyrics font,
+Settings also cover track click behavior, sharing, Now Playing view, lyrics font,
 and search tuning.
 
 ## Requirements
@@ -73,6 +77,7 @@ and search tuning.
 - Obsidian desktop (this plugin is desktop-only).
 - A server that speaks the Subsonic API — Navidrome, Airsonic-Advanced, Gonic,
   and others.
+- Share links require a Navidrome server with `EnableSharing` enabled.
 
 ## Data and network transparency
 
@@ -88,6 +93,9 @@ and search tuning.
   your vault, that file goes with it. Consider a dedicated, limited account on
   your music server.
 - No telemetry, no analytics.
+- Share links are public: anyone with the URL can listen until it expires.
+  Links are stored on your server, not in the plugin. If Obsidian connects over
+  LAN, set **Public link base URL (WAN)** so copied links work outside your network.
 - Recently played stores track IDs, display metadata (title, artist, album,
   artwork ID, genre, duration, and favorite status), and play timestamps locally
   in the same `data.json`, limited to 200 entries for the configured

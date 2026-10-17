@@ -34,6 +34,21 @@ export type RadioVisualization = "radio" | "boombox" | "follow";
 /** Horizontal alignment of the lyrics panel text. */
 export type LyricsAlign = "left" | "center" | "right";
 
+/** Lifetime presets for newly created share links. */
+export type ShareTtlPreset = "1h" | "24h" | "7d" | "30d" | "1y";
+
+export const SHARE_TTL_PRESETS: ReadonlyArray<{
+	value: ShareTtlPreset;
+	label: string;
+	ms: number;
+}> = [
+	{ value: "1h", label: "1 hour", ms: 60 * 60 * 1000 },
+	{ value: "24h", label: "24 hours", ms: 24 * 60 * 60 * 1000 },
+	{ value: "7d", label: "7 days", ms: 7 * 24 * 60 * 60 * 1000 },
+	{ value: "30d", label: "30 days", ms: 30 * 24 * 60 * 60 * 1000 },
+	{ value: "1y", label: "1 year", ms: 365 * 24 * 60 * 60 * 1000 },
+];
+
 /** Options for the internet-radio visualization dropdown. */
 export const RADIO_VISUALIZATIONS: {
 	value: RadioVisualization;
@@ -77,6 +92,14 @@ export interface StereoSettings {
 	volumeControl: boolean;
 	/** Show copy actions in contextual menus. */
 	contextualCopyButtons: boolean;
+	/** Show share actions and the share-link manager. */
+	sharingEnabled: boolean;
+	/** Base URL used for public share links; empty falls back to serverUrl. */
+	shareBaseUrl: string;
+	/** Preselected lifetime for new share links. */
+	shareDefaultTtl: ShareTtlPreset;
+	/** Initial state of the Allow downloads checkbox. */
+	shareDownloadsByDefault: boolean;
 	/** Tracks added per station batch. */
 	stationBatchSize: number;
 	nowPlayingView: NowPlayingView;
@@ -104,6 +127,10 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	scrobbleEnabled: true,
 	volumeControl: true,
 	contextualCopyButtons: true,
+	sharingEnabled: true,
+	shareBaseUrl: "",
+	shareDefaultTtl: "7d",
+	shareDownloadsByDefault: false,
 	stationBatchSize: 30,
 	nowPlayingView: "record",
 	radioVisualization: "radio",
@@ -217,6 +244,41 @@ export class StereoSettingTab extends PluginSettingTab {
 									await this.plugin.saveSettings();
 								}
 							),
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Sharing",
+				items: [
+					{
+						name: "Share links",
+						desc: "Show Share actions in context menus and the share-link manager. Requires a Navidrome server with sharing enabled.",
+						control: { type: "toggle", key: "sharingEnabled" },
+					},
+					{
+						name: "Public link base URL (WAN)",
+						desc: "Base URL used for share links. Leave empty to use the server URL. Set this when Obsidian connects over LAN but links must work outside your network.",
+						render: (setting) => this.renderShareBaseUrl(setting),
+					},
+					{
+						name: "Default link lifetime",
+						desc: "Preselected lifetime when creating a share link.",
+						control: {
+							type: "dropdown",
+							key: "shareDefaultTtl",
+							options: Object.fromEntries(
+								SHARE_TTL_PRESETS.map((preset) => [
+									preset.value,
+									preset.label,
+								])
+							),
+						},
+					},
+					{
+						name: "Allow downloads by default",
+						desc: "Initial state of the Allow downloads checkbox in the share dialog.",
+						control: { type: "toggle", key: "shareDownloadsByDefault" },
 					},
 				],
 			},
@@ -382,6 +444,7 @@ export class StereoSettingTab extends PluginSettingTab {
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
 		await this.plugin.saveSettings();
 		if (key === "volumeControl") this.plugin.applyVolumeControlSetting();
+		if (key === "sharingEnabled") this.plugin.syncShareUi();
 		if (VIEW_REFRESH_KEYS.has(key)) this.plugin.refreshNowPlayingViews();
 		if (key === "lyricsAlign") this.applyLyricsPreview?.();
 	}
@@ -532,6 +595,21 @@ export class StereoSettingTab extends PluginSettingTab {
 			);
 		}
 		this.updateStatusUi();
+	}
+
+	// ------------------------------------------------------------------
+	// Sharing
+
+	private renderShareBaseUrl(setting: Setting): void {
+		setting.addText((text) => {
+			text
+				.setPlaceholder("https://music.example.com")
+				.setValue(this.plugin.settings.shareBaseUrl)
+				.onChange(async (value) => {
+					this.plugin.settings.shareBaseUrl = value.trim();
+					await this.plugin.saveSettings();
+				});
+		});
 	}
 
 	// ------------------------------------------------------------------

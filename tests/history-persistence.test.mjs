@@ -15,11 +15,13 @@ const result = await build({
 				registerView() {} addSettingTab() {} addRibbonIcon() {} addCommand() {}
 			}
 			export class Notice {} export class WorkspaceLeaf {}
+			export class Modal {} export class Setting {} export class FuzzySuggestModal {}
+			export class ButtonComponent {} export function setIcon() {}
 			export function debounce(fn) { const call = () => { call.pending = true; }; call.cancel = () => { call.pending = false; }; call.run = () => { if (call.pending) fn(); call.pending = false; }; return call; }
 			export function requestUrl() { throw new Error("Unexpected network request"); }
 		` }));
 		builder.onLoad({ filter: /[\\/]src[\\/]view\.ts$/ }, () => ({ contents: 'export const STEREO_VIEW_TYPE = "stereo-player"; export class StereoView {}' }));
-		builder.onLoad({ filter: /[\\/]src[\\/]settings\.ts$/ }, () => ({ contents: 'export const DEFAULT_SETTINGS = { serverUrl: "", username: "", password: "", scrobbleEnabled: false }; export class StereoSettingTab {}' }));
+		builder.onLoad({ filter: /[\\/]src[\\/]settings\.ts$/ }, () => ({ contents: 'export const DEFAULT_SETTINGS = { serverUrl: "", username: "", password: "", scrobbleEnabled: false }; export const SHARE_TTL_PRESETS = []; export class StereoSettingTab {}' }));
 	} }],
 });
 const { default: StereoPlugin } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -58,6 +60,38 @@ test("plugin loads legacy data and saves current queue alongside history before 
 		assert.equal(restarted.player.getState().playing, false);
 		assert.equal(restarted.writes.length, 0);
 	}
+});
+
+test("queue origin is cleared by edits and survives restart", async (t) => {
+	const plugin = await setup(t, { settings });
+	await plugin.player.setQueue(
+		[song, { id: "two", title: "Two" }],
+		0,
+		{ kind: "album", id: "album-1", name: "Album" }
+	);
+	assert.deepEqual(plugin.player.getState().queueOrigin, {
+		kind: "album",
+		id: "album-1",
+		name: "Album",
+	});
+
+	plugin.player.addToQueue([{ id: "three", title: "Three" }]);
+	assert.equal(plugin.player.getState().queueOrigin, null);
+
+	await plugin.player.setQueue(
+		[song],
+		0,
+		{ kind: "playlist", id: "playlist-1", name: "Playlist", songCount: 1 }
+	);
+	plugin.savePlayerState.run();
+	await plugin.pendingSave;
+	const restarted = await setup(t, plugin.writes.at(-1));
+	assert.deepEqual(restarted.player.getState().queueOrigin, {
+		kind: "playlist",
+		id: "playlist-1",
+		name: "Playlist",
+		songCount: 1,
+	});
 });
 
 test("pending writes cannot overwrite a later clear; clearing is saved without waiting for queue debounce", async (t) => {

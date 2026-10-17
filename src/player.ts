@@ -5,6 +5,21 @@ import type { Song, SubsonicClient } from "./subsonic";
 
 export type RepeatMode = "off" | "queue" | "track";
 
+/** Where a queue came from, used to share the album/playlist instead of a snapshot. */
+export type QueueOrigin =
+	| { kind: "album"; id: string; name: string; artist?: string }
+	| { kind: "playlist"; id: string; name: string; songCount?: number };
+
+function isQueueOrigin(value: unknown): value is QueueOrigin {
+	if (!value || typeof value !== "object") return false;
+	const origin = value as Record<string, unknown>;
+	return (
+		(origin.kind === "album" || origin.kind === "playlist") &&
+		typeof origin.id === "string" &&
+		typeof origin.name === "string"
+	);
+}
+
 export interface PlayerState {
 	/** The play queue. `queue[index]` is the current track. */
 	queue: Song[];
@@ -22,6 +37,8 @@ export interface PlayerState {
 	repeat: RepeatMode;
 	/** Seed of the active station, or null when the queue is a plain queue. */
 	station: StationSeed | null;
+	/** Album/playlist the queue was loaded from, cleared by queue edits. */
+	queueOrigin: QueueOrigin | null;
 	/** A session-only queue replacement can be undone. */
 	canUndo: boolean;
 	/** Human-readable playback error, cleared on the next successful action. */
@@ -37,6 +54,8 @@ export interface PlayerSnapshot {
 	/** Optional for saved sessions from before repeat support. */
 	repeat?: RepeatMode;
 	station?: StationSeed;
+	/** Optional for saved sessions from before queue-origin support. */
+	queueOrigin?: QueueOrigin;
 }
 
 type Listener = (state: Readonly<PlayerState>) => void;
@@ -47,6 +66,7 @@ interface QueueUndoSnapshot {
 	position: number;
 	playing: boolean;
 	station: StationSeed | null;
+	queueOrigin: QueueOrigin | null;
 }
 
 /** Pressing previous after this many seconds restarts the track instead. */
@@ -99,6 +119,7 @@ export class PlayerStore {
 		volume: 0.5,
 		repeat: "off",
 		station: null,
+		queueOrigin: null,
 		canUndo: false,
 		error: null,
 	};
@@ -180,6 +201,9 @@ export class PlayerStore {
 			volume,
 			repeat: snapshot.repeat === "queue" || snapshot.repeat === "track" ? snapshot.repeat : "off",
 			station: snapshot.station ?? null,
+			queueOrigin: isQueueOrigin(snapshot.queueOrigin)
+				? snapshot.queueOrigin
+				: null,
 			error: null,
 		});
 	}
@@ -204,6 +228,7 @@ export class PlayerStore {
 			volume: this.state.volume,
 			repeat: this.state.repeat,
 			station: this.state.station ?? undefined,
+			queueOrigin: this.state.queueOrigin ?? undefined,
 		});
 	}
 
@@ -211,8 +236,8 @@ export class PlayerStore {
 
 	private captureUndo(): void {
 		if (this.state.queue.length === 0) return;
-		const { queue, index, position, playing, station } = this.state;
-		this.undoSnapshot = { queue: [...queue], index, position, playing, station };
+		const { queue, index, position, playing, station, queueOrigin } = this.state;
+		this.undoSnapshot = { queue: [...queue], index, position, playing, station, queueOrigin };
 		this.state = { ...this.state, canUndo: true };
 	}
 
@@ -248,7 +273,7 @@ export class PlayerStore {
 		else if (from < current && to >= current) index--;
 		else if (from > current && to <= current) index++;
 		this.invalidateUndo();
-		this.update({ queue, index });
+		this.update({ queue, index, queueOrigin: null });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -266,11 +291,20 @@ export class PlayerStore {
 	}
 
 	/** Replace the queue and start playing at `startIndex`. Ends any station. */
-	async setQueue(songs: Song[], startIndex = 0): Promise<void> {
+	async setQueue(
+		songs: Song[],
+		startIndex = 0,
+		origin: QueueOrigin | null = null
+	): Promise<void> {
 		if (songs.length === 0) return;
 		const index = Math.max(0, Math.min(startIndex, songs.length - 1));
 		this.captureUndo();
-		this.update({ queue: [...songs], index, station: null });
+		this.update({
+			queue: [...songs],
+			index,
+			station: null,
+			queueOrigin: origin,
+		});
 		await this.loadCurrent(true);
 	}
 
@@ -280,11 +314,16 @@ export class PlayerStore {
 		this.invalidateUndo();
 		const queue = [...this.state.queue, ...songs];
 		if (this.state.index < 0) {
-			this.update({ queue, index: this.state.queue.length, station: null });
+			this.update({
+				queue,
+				index: this.state.queue.length,
+				station: null,
+				queueOrigin: null,
+			});
 			await this.loadCurrent(true);
 			return;
 		}
-		this.update({ queue });
+		this.update({ queue, queueOrigin: null });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -295,7 +334,7 @@ export class PlayerStore {
 		this.invalidateUndo();
 		const queue = [...this.state.queue];
 		queue.splice(this.state.index + 1, 0, ...songs);
-		this.update({ queue });
+		this.update({ queue, queueOrigin: null });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -319,7 +358,7 @@ export class PlayerStore {
 			return;
 		}
 		if (index < this.state.index) {
-			this.update({ queue, index: this.state.index - 1 });
+			this.update({ queue, index: this.state.index - 1, queueOrigin: null });
 			this.prefetchNext();
 			this.persistNow();
 			return;
@@ -327,11 +366,11 @@ export class PlayerStore {
 		if (index === this.state.index) {
 			const wasPlaying = this.state.playing;
 			const nextIndex = Math.min(index, queue.length - 1);
-			this.update({ queue, index: nextIndex });
+			this.update({ queue, index: nextIndex, queueOrigin: null });
 			await this.loadCurrent(wasPlaying);
 			return;
 		}
-		this.update({ queue });
+		this.update({ queue, queueOrigin: null });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -375,6 +414,7 @@ export class PlayerStore {
 			position: 0,
 			duration: 0,
 			station: null,
+			queueOrigin: null,
 			error: null,
 		});
 		this.persistNow();
@@ -432,7 +472,7 @@ export class PlayerStore {
 		if (order.every((original, i) => original === i)) return;
 		const queue = order.map((i) => this.state.queue[i]!);
 		this.invalidateUndo();
-		this.update({ queue, index: current >= 0 ? 0 : current });
+		this.update({ queue, index: current >= 0 ? 0 : current, queueOrigin: null });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -460,12 +500,12 @@ export class PlayerStore {
 		this.captureUndo();
 
 		if (lead && this.state.track?.id === lead.id && this.audio.src) {
-			this.update({ queue, index: 0, station: seed, error: null });
+			this.update({ queue, index: 0, station: seed, queueOrigin: null, error: null });
 			this.prefetchNext();
 			this.persistNow();
 			return queue.length;
 		}
-		this.update({ queue, index: 0, station: seed, error: null });
+		this.update({ queue, index: 0, station: seed, queueOrigin: null, error: null });
 		await this.loadCurrent(true);
 		return queue.length;
 	}

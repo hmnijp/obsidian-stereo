@@ -8,6 +8,13 @@ import {
 } from "./modals";
 import { SubsonicError } from "./subsonic";
 import type StereoPlugin from "./main";
+import type { QueueOrigin } from "./player";
+import {
+	shareTargetForAlbum,
+	shareTargetForArtist,
+	shareTargetForPlaylist,
+	shareTargetForSong,
+} from "./share";
 import type {
 	Album,
 	Artist,
@@ -51,6 +58,8 @@ export class LibraryPane extends Component {
 	private addStationButton!: HTMLButtonElement;
 	/** Heart in the sub-tab bar; accent-highlighted while Favorites is open. */
 	private favoritesButton!: HTMLButtonElement;
+	/** Link icon in the sub-tab bar; opens the share manager. */
+	private shareButton!: HTMLButtonElement;
 	private bodyEl: HTMLElement;
 	private contentEl: HTMLElement;
 	/** Alphabet rail overlaying the artists list; exists only on that page. */
@@ -98,6 +107,14 @@ export class LibraryPane extends Component {
 		setIcon(this.historyButton, "history");
 		this.registerDomEvent(this.historyButton, "click", () => {
 			if (this.stack[this.stack.length - 1]?.kind !== "history") this.push({ kind: "history" });
+		});
+		this.shareButton = subTabBar.createEl("button", {
+			cls: "stereo-button clickable-icon",
+			attr: { "aria-label": "Share links", title: "Share links" },
+		});
+		setIcon(this.shareButton, "link");
+		this.registerDomEvent(this.shareButton, "click", () => {
+			this.plugin.openShares();
 		});
 		this.addStationButton = subTabBar.createEl("button", {
 			cls: "stereo-button clickable-icon stereo-subtab-refresh",
@@ -174,6 +191,16 @@ export class LibraryPane extends Component {
 		}
 	}
 
+	/** Show or hide share-related controls without rebuilding the pane. */
+	setSharingEnabled(enabled: boolean): void {
+		this.shareButton.toggleClass("stereo-hidden", !enabled);
+		this.contentEl
+			.querySelectorAll<HTMLElement>(".stereo-share-detail")
+			.forEach((button) => {
+				button.toggleClass("stereo-hidden", !enabled);
+			});
+	}
+
 	// --- navigation internals ---
 
 	private setSubTab(tab: SubTab): void {
@@ -224,6 +251,10 @@ export class LibraryPane extends Component {
 		this.addStationButton.toggleClass(
 			"stereo-hidden",
 			this.activeSubTab !== "radio"
+		);
+		this.shareButton.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.sharingEnabled
 		);
 		this.scrubEl?.remove();
 		this.scrubEl = null;
@@ -605,6 +636,9 @@ export class LibraryPane extends Component {
 			() => !!result.artist.starred,
 			() => this.toggleArtistFavorite(result.artist)
 		);
+		this.shareActionIcon(actions, "Share artist", () => {
+			this.plugin.openShare(shareTargetForArtist(result.artist));
+		});
 
 		const grid = this.contentEl.createDiv({ cls: "stereo-grid" });
 		for (const album of result.albums) this.albumCard(grid, album, true);
@@ -643,22 +677,35 @@ export class LibraryPane extends Component {
 		headerText.createDiv({ cls: "stereo-detail-meta", text: metaParts.join(" · ") });
 
 		const playRow = headerText.createDiv({ cls: "stereo-detail-actions" });
-		const playButton = playRow.createEl("button", {
-			cls: "stereo-button stereo-text-button clickable-icon",
-			text: "Play",
-		});
-		playButton.addEventListener("click", () => {
-			void this.plugin.player.setQueue(songs, 0);
+		this.actionIcon(playRow, "play", "Play album", () => {
+			void this.plugin.player.setQueue(songs, 0, {
+				kind: "album",
+				id: album.id,
+				name: album.name,
+				artist: album.artist,
+			});
 		});
 		this.heartButton(
 			playRow,
 			() => !!album.starred,
 			() => this.toggleAlbumFavorite(album)
 		);
+		this.shareActionIcon(playRow, "Share album", () => {
+			this.plugin.openShare(shareTargetForAlbum(album));
+		});
 
 		const list = this.contentEl.createDiv({ cls: "stereo-track-list" });
 		songs.forEach((song, i) => {
-			this.trackRow(list, songs, i, { showNumber: true, hideArtist: true });
+			this.trackRow(list, songs, i, {
+				showNumber: true,
+				hideArtist: true,
+				origin: {
+					kind: "album",
+					id: album.id,
+					name: album.name,
+					artist: album.artist,
+				},
+			});
 		});
 	}
 
@@ -675,12 +722,16 @@ export class LibraryPane extends Component {
 			text: songCountLabel(songs.length),
 		});
 		const playRow = headerText.createDiv({ cls: "stereo-detail-actions" });
-		const playButton = playRow.createEl("button", {
-			cls: "stereo-button stereo-text-button clickable-icon",
-			text: "Play",
+		this.actionIcon(playRow, "play", "Play playlist", () => {
+			void this.plugin.player.setQueue(songs, 0, {
+				kind: "playlist",
+				id: playlist.id,
+				name: playlist.name,
+				songCount: songs.length,
+			});
 		});
-		playButton.addEventListener("click", () => {
-			void this.plugin.player.setQueue(songs, 0);
+		this.shareActionIcon(playRow, "Share playlist", () => {
+			this.plugin.openShare(shareTargetForPlaylist(playlist));
 		});
 
 		if (songs.length === 0) {
@@ -692,6 +743,12 @@ export class LibraryPane extends Component {
 			this.trackRow(list, songs, i, {
 				showNumber: false,
 				hideArtist: false,
+				origin: {
+					kind: "playlist",
+					id: playlist.id,
+					name: playlist.name,
+					songCount: songs.length,
+				},
 				removeFromPlaylist: (index) => {
 					void this.managePlaylist("Removed from playlist.", () =>
 						this.plugin.client.updatePlaylist(playlist.id, {
@@ -707,6 +764,35 @@ export class LibraryPane extends Component {
 	}
 
 	// --- favorites plumbing (shared by detail-page hearts and context menus) ---
+
+	private actionIcon(
+		parent: HTMLElement,
+		icon: string,
+		label: string,
+		onClick: () => void
+	): HTMLButtonElement {
+		const button = parent.createEl("button", {
+			cls: "stereo-button clickable-icon",
+			attr: { "aria-label": label, title: label },
+		});
+		setIcon(button, icon);
+		button.addEventListener("click", onClick);
+		return button;
+	}
+
+	private shareActionIcon(
+		parent: HTMLElement,
+		label: string,
+		onClick: () => void
+	): HTMLButtonElement {
+		const button = this.actionIcon(parent, "share-2", label, onClick);
+		button.addClass("stereo-share-detail");
+		button.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.sharingEnabled
+		);
+		return button;
+	}
 
 	/** Heart toggle for detail-page headers; keeps its own filled state fresh. */
 	private heartButton(
@@ -841,6 +927,8 @@ export class LibraryPane extends Component {
 		options: {
 			showNumber: boolean;
 			hideArtist: boolean;
+			/** Album/playlist this row belongs to, when the queue is replaced. */
+			origin?: QueueOrigin;
 			/** Present on playlist pages: removes this row from the playlist. */
 			removeFromPlaylist?: (index: number) => void;
 		}
@@ -868,7 +956,11 @@ export class LibraryPane extends Component {
 		row.addEventListener("click", () => {
 			switch (this.plugin.settings.trackClickAction) {
 				case "play":
-					void this.plugin.player.setQueue([...songs], index);
+					void this.plugin.player.setQueue(
+						[...songs],
+						index,
+						options.origin ?? null
+					);
 					break;
 				case "addToQueue":
 					void this.plugin.player.addToQueue([song]);
@@ -927,6 +1019,13 @@ export class LibraryPane extends Component {
 				void this.addToPlaylist([song]);
 			})
 		);
+		if (this.plugin.settings.sharingEnabled && !song.streamUrl) {
+			menu.addItem((item) =>
+				item.setTitle("Share…").setIcon("share-2").onClick(() => {
+					this.plugin.openShare(shareTargetForSong(song));
+				})
+			);
+		}
 		if (context?.removeFromPlaylist) {
 			const remove = context.removeFromPlaylist;
 			menu.addItem((item) =>
@@ -974,7 +1073,12 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item.setTitle("Play").setIcon("play").onClick(() => {
 				void this.withAlbumSongs(album, (songs) =>
-					this.plugin.player.setQueue(songs, 0)
+					this.plugin.player.setQueue(songs, 0, {
+						kind: "album",
+						id: album.id,
+						name: album.name,
+						artist: album.artist,
+					})
 				);
 			})
 		);
@@ -1007,6 +1111,13 @@ export class LibraryPane extends Component {
 				void this.withAlbumSongs(album, (songs) => this.addToPlaylist(songs));
 			})
 		);
+		if (this.plugin.settings.sharingEnabled) {
+			menu.addItem((item) =>
+				item.setTitle("Share…").setIcon("share-2").onClick(() => {
+					this.plugin.openShare(shareTargetForAlbum(album));
+				})
+			);
+		}
 		if (album.artistId) {
 			menu.addSeparator();
 			menu.addItem((item) =>
@@ -1042,6 +1153,13 @@ export class LibraryPane extends Component {
 				});
 			})
 		);
+		if (this.plugin.settings.sharingEnabled) {
+			menu.addItem((item) =>
+				item.setTitle("Share…").setIcon("share-2").onClick(() => {
+					this.plugin.openShare(shareTargetForArtist(artist));
+				})
+			);
+		}
 		menu.addSeparator();
 		menu.addItem((item) =>
 			item
@@ -1063,7 +1181,12 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item.setTitle("Play").setIcon("play").onClick(() => {
 				void this.withPlaylistSongs(playlist, (songs) =>
-					this.plugin.player.setQueue(songs, 0)
+					this.plugin.player.setQueue(songs, 0, {
+						kind: "playlist",
+						id: playlist.id,
+						name: playlist.name,
+						songCount: songs.length,
+					})
 				);
 			})
 		);
@@ -1081,6 +1204,13 @@ export class LibraryPane extends Component {
 				);
 			})
 		);
+		if (this.plugin.settings.sharingEnabled) {
+			menu.addItem((item) =>
+				item.setTitle("Share…").setIcon("share-2").onClick(() => {
+					this.plugin.openShare(shareTargetForPlaylist(playlist));
+				})
+			);
+		}
 		menu.addSeparator();
 		menu.addItem((item) =>
 			item.setTitle("Rename…").setIcon("pencil").onClick(() => {

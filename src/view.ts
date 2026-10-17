@@ -13,6 +13,7 @@ import { getLyrics, type Lyrics } from "./lyrics";
 import { LibraryPane } from "./library";
 import { PlaylistNameModal } from "./modals";
 import { SearchPane } from "./search";
+import { shareTargetForSong } from "./share";
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
 import type { PlayerState } from "./player";
@@ -137,6 +138,7 @@ export class StereoView extends ItemView {
 	private queueButton!: HTMLButtonElement;
 	private stationButton!: HTMLButtonElement;
 	private favoriteButton!: HTMLButtonElement;
+	private trackShareButton!: HTMLButtonElement;
 	private errorEl!: HTMLElement;
 
 	// Lyrics panel (swaps in for the art area while toggled on)
@@ -159,6 +161,7 @@ export class StereoView extends ItemView {
 	// Queue page
 	private queueTitleEl!: HTMLElement;
 	private moreButton!: HTMLButtonElement;
+	private queueShareButton!: HTMLButtonElement;
 	private queueList!: HTMLElement;
 	private undoButton!: HTMLButtonElement;
 	private queueErrorEl!: HTMLElement;
@@ -300,6 +303,7 @@ export class StereoView extends ItemView {
 
 		this.setActiveTab("nowPlaying");
 		this.applyNowPlayingView();
+		this.syncShareUi();
 		this.unsubscribe = this.plugin.player.subscribe((state) => {
 			this.render(state);
 		});
@@ -547,6 +551,14 @@ export class StereoView extends ItemView {
 		const state = this.plugin.player.getState();
 		this.setEffectiveView(this.effectiveNowPlayingView(state.track));
 		this.render(state);
+	}
+
+	/** Show or hide share controls after the settings toggle changes. */
+	syncShareUi(): void {
+		const enabled = this.plugin.settings.sharingEnabled;
+		this.library?.setSharingEnabled(enabled);
+		this.queueShareButton?.toggleClass("stereo-hidden", !enabled);
+		this.trackShareButton?.toggleClass("stereo-hidden", !enabled);
 	}
 
 	/** Switch the active presentation (art shape / visualizer mode). Does not
@@ -956,7 +968,7 @@ export class StereoView extends ItemView {
 			void this.plugin.player.next();
 		});
 
-		// Extras row: queue · lyrics · random · station · favorite · volume
+		// Extras row: queue · lyrics · random · station · favorite · share · volume
 		// (playback modes live on the queue page — they operate on the queue).
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
@@ -1010,6 +1022,16 @@ export class StereoView extends ItemView {
 				new Notice("Could not update favorites on the server.");
 			});
 		});
+		this.trackShareButton = this.iconButton(
+			extrasRow,
+			"share-2",
+			"Share track",
+			() => {
+				const track = this.plugin.player.getState().track;
+				if (!track || track.streamUrl) return;
+				this.plugin.openShare(shareTargetForSong(track));
+			}
+		);
 
 		this.errorEl = page.createDiv({ cls: "stereo-error" });
 	}
@@ -1202,6 +1224,14 @@ export class StereoView extends ItemView {
 			text: "More",
 			attr: { "aria-label": "Add more station tracks" },
 		});
+		this.queueShareButton = this.iconButton(
+			actions,
+			"share-2",
+			"Share queue",
+			() => {
+				void this.plugin.openShareQueue();
+			}
+		);
 		this.registerDomEvent(this.moreButton, "click", async () => {
 			this.moreButton.disabled = true;
 			try {
@@ -1326,17 +1356,53 @@ export class StereoView extends ItemView {
 					if (this.plugin.player.getState().queue === queue) this.plugin.player.moveToNext(index);
 				});
 		});
-		this.addSongCopyItems(menu, song, true);
+		if (
+			this.plugin.settings.contextualCopyButtons ||
+			this.canShareSong(song)
+		) {
+			menu.addSeparator();
+		}
+		this.addSongCopyItems(menu, song, false);
+		this.addSongShareItem(menu, song, false);
 		menu.showAtPosition(position);
 	}
 
-	/** Right-click a row in the inline Now Playing queue: copy actions only. */
+	/** Right-click a row in the inline Now Playing queue: copy and share actions. */
 	private showSongCopyMenu(evt: MouseEvent, song: Song | undefined): void {
-		if (!this.plugin.settings.contextualCopyButtons || !song) return;
+		if (!song) return;
+		const copy = this.plugin.settings.contextualCopyButtons;
+		const share = this.canShareSong(song);
+		if (!copy && !share) return;
 		evt.preventDefault();
 		const menu = new Menu();
 		this.addSongCopyItems(menu, song, false);
+		this.addSongShareItem(menu, song, copy);
 		menu.showAtMouseEvent(evt);
+	}
+
+	private canShareSong(song: Song | undefined): boolean {
+		return (
+			!!song &&
+			!song.streamUrl &&
+			this.plugin.settings.sharingEnabled
+		);
+	}
+
+	private addSongShareItem(
+		menu: Menu,
+		song: Song | undefined,
+		separator: boolean
+	): void {
+		if (!this.canShareSong(song) || !song) return;
+		if (separator) menu.addSeparator();
+		menu.addItem((item) =>
+			item
+				.setTitle("Share…")
+				.setIcon("share-2")
+				.onClick(() => {
+					this.plugin.openShare(shareTargetForSong(song));
+				})
+		);
 	}
 
 	/** Shared copy entries for queue rows (editor and inline player). */
@@ -1611,6 +1677,18 @@ export class StereoView extends ItemView {
 		this.favoriteButton.setAttribute(
 			"aria-label",
 			state.track?.starred ? "Remove from favorites" : "Add to favorites"
+		);
+		this.trackShareButton.disabled = !state.track || !!state.track.streamUrl;
+		this.trackShareButton.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.sharingEnabled
+		);
+		this.queueShareButton.disabled = !state.queue.some(
+			(song) => !song.streamUrl
+		);
+		this.queueShareButton.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.sharingEnabled
 		);
 		this.previousButton.disabled = !state.track;
 		this.nextButton.disabled = !this.plugin.player.canNext();

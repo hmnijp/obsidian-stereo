@@ -166,6 +166,7 @@ export class StereoView extends ItemView {
 	private queueButton!: HTMLButtonElement;
 	private randomButton!: HTMLButtonElement;
 	private stationButton!: HTMLButtonElement;
+	private playlistButton!: HTMLButtonElement;
 	private favoriteButton!: HTMLButtonElement;
 	private trackShareButton!: HTMLButtonElement;
 	private errorEl!: HTMLElement;
@@ -191,6 +192,7 @@ export class StereoView extends ItemView {
 	private queueTitleEl!: HTMLElement;
 	private moreButton!: HTMLButtonElement;
 	private queueShareButton!: HTMLButtonElement;
+	private queuePlaylistButton!: HTMLButtonElement;
 	private queueList!: HTMLElement;
 	private undoButton!: HTMLButtonElement;
 	private queueErrorEl!: HTMLElement;
@@ -529,14 +531,49 @@ export class StereoView extends ItemView {
 		]);
 	}
 
-	/** Right-click menu on the track info: copy artist / artist - track /
-	 * artist - album - track, plus the cover. Missing fields disable the
-	 * relevant entries. */
-	private showTrackCopyMenu(evt: MouseEvent): void {
-		if (!this.plugin.settings.contextualCopyButtons) return;
-		const track = this.plugin.player.getState().track;
+	/** Right-click menu on the track info: playlist actions plus optional copy
+	 * entries. The collection entry follows the album/playlist the queue was
+	 * loaded from, falling back to the current track's album. */
+	private showTrackMenu(evt: MouseEvent): void {
+		const state = this.plugin.player.getState();
+		const track = state.track;
 		if (!track) return;
+		const collection = this.trackCollectionTarget(state);
+		const canAddSong = !track.streamUrl;
+		const copy = this.plugin.settings.contextualCopyButtons;
+		if (!canAddSong && !collection && !copy) return;
 		evt.preventDefault();
+
+		const menu = new Menu();
+		menu.addItem((item) =>
+			item
+				.setTitle("Add to playlist…")
+				.setIcon("list-music")
+				.setDisabled(!canAddSong)
+				.onClick(() => {
+					if (canAddSong) void this.library.addToPlaylist([track]);
+				})
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle(
+					collection
+						? `Add ${collection.kind} to playlist…`
+						: "Add album/playlist to playlist…"
+				)
+				.setIcon("list-music")
+				.setDisabled(!collection)
+				.onClick(() => {
+					if (collection) {
+						this.addCollectionToPlaylist(collection.kind, collection.id);
+					}
+				})
+		);
+
+		if (!copy) {
+			menu.showAtMouseEvent(evt);
+			return;
+		}
 
 		const artist = track.artist?.trim() ?? "";
 		const title = track.title?.trim() ?? "";
@@ -547,7 +584,7 @@ export class StereoView extends ItemView {
 			{ label: "Copy artist - album - track", parts: [artist, album, title] },
 		];
 
-		const menu = new Menu();
+		menu.addSeparator();
 		for (const entry of entries) {
 			const text = entry.parts.filter(Boolean).join(" - ");
 			const complete = entry.parts.every(Boolean);
@@ -560,7 +597,6 @@ export class StereoView extends ItemView {
 			);
 		}
 		const coverArt = track.coverArt;
-		menu.addSeparator();
 		menu.addItem((item) =>
 			item
 				.setTitle("Copy cover")
@@ -571,6 +607,49 @@ export class StereoView extends ItemView {
 				})
 		);
 		menu.showAtMouseEvent(evt);
+	}
+
+	/** The album/playlist behind the current queue, or the track's album. */
+	private trackCollectionTarget(
+		state: Readonly<PlayerState>
+	): { kind: "album" | "playlist"; id: string } | null {
+		if (state.queueOrigin) {
+			return { kind: state.queueOrigin.kind, id: state.queueOrigin.id };
+		}
+		const albumId = state.track?.albumId;
+		return albumId ? { kind: "album", id: albumId } : null;
+	}
+
+	/** Load an entire album or playlist and hand it to the playlist picker. */
+	private addCollectionToPlaylist(
+		kind: "album" | "playlist",
+		id: string
+	): void {
+		void (async () => {
+			let songs: Song[];
+			try {
+				songs =
+					kind === "album"
+						? (await this.plugin.client.getAlbum(id)).songs
+						: (await this.plugin.client.getPlaylist(id)).songs;
+			} catch {
+				new Notice(
+					kind === "album"
+						? "Could not load the album from the server."
+						: "Could not load the playlist from the server."
+				);
+				return;
+			}
+			if (songs.length === 0) {
+				new Notice(
+					kind === "album"
+						? "This album has no tracks."
+						: "This playlist is empty."
+				);
+				return;
+			}
+			await this.library.addToPlaylist(songs);
+		})();
 	}
 
 	private copyToClipboard(text: string): void {
@@ -629,6 +708,7 @@ export class StereoView extends ItemView {
 		this.shuffleButton?.toggleClass("stereo-hidden", !settings.showShuffleButton);
 		this.randomButton?.toggleClass("stereo-hidden", !settings.showRandomButton);
 		this.stationButton?.toggleClass("stereo-hidden", !settings.showStationButton);
+		this.playlistButton?.toggleClass("stereo-hidden", !settings.showPlaylistButton);
 		this.favoriteButton?.toggleClass("stereo-hidden", !settings.showFavoriteButton);
 		this.extrasRatingControl?.toggleClass(
 			"stereo-hidden",
@@ -1018,7 +1098,7 @@ export class StereoView extends ItemView {
 			const index = Number(row.dataset.queueIndex);
 			if (!Number.isInteger(index)) return;
 			const song = this.plugin.player.getState().queue[index];
-			this.showSongCopyMenu(evt, song);
+			this.showInlineQueueMenu(evt, song);
 		});
 
 		// Track info — the three lines sit in one tight block. When the big art
@@ -1057,7 +1137,7 @@ export class StereoView extends ItemView {
 			this.library.openAlbum(track.albumId, track.album ?? "");
 		});
 		this.registerDomEvent(this.trackRowEl, "contextmenu", (evt) =>
-			this.showTrackCopyMenu(evt)
+			this.showTrackMenu(evt)
 		);
 
 		// Seek row: elapsed | slider | −remaining
@@ -1104,7 +1184,7 @@ export class StereoView extends ItemView {
 		});
 
 		// Extras row order: repeat · shuffle · queue · lyrics · station ·
-		// random · share · favorite · volume.
+		// random · playlist · share · rating · favorite · volume.
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
 		this.repeatButton = this.iconButton(extrasRow, "repeat", "Repeat off", () => {
@@ -1157,6 +1237,16 @@ export class StereoView extends ItemView {
 						new Notice("Could not fetch a random song from the server.");
 					}
 				})();
+			}
+		);
+		this.playlistButton = this.iconButton(
+			extrasRow,
+			"list-music",
+			"Add to playlist",
+			() => {
+				const track = this.plugin.player.getState().track;
+				if (!track || track.streamUrl) return;
+				void this.library.addToPlaylist([track]);
 			}
 		);
 		this.trackShareButton = this.iconButton(
@@ -1409,6 +1499,16 @@ export class StereoView extends ItemView {
 				void this.plugin.openShareQueue();
 			}
 		);
+		this.queuePlaylistButton = this.iconButton(
+			actions,
+			"list-music",
+			"Add queue to playlist",
+			() => {
+				void this.library.addToPlaylist(
+					this.plugin.player.getState().queue
+				);
+			}
+		);
 		this.registerDomEvent(this.moreButton, "click", async () => {
 			this.moreButton.disabled = true;
 			try {
@@ -1613,6 +1713,8 @@ export class StereoView extends ItemView {
 					if (this.plugin.player.getState().queue === queue) this.plugin.player.moveToNext(index);
 				});
 		});
+		menu.addSeparator();
+		this.addSongPlaylistItem(menu, song, false);
 		if (
 			this.plugin.settings.contextualCopyButtons ||
 			this.canShareSong(song)
@@ -1624,16 +1726,20 @@ export class StereoView extends ItemView {
 		menu.showAtPosition(position);
 	}
 
-	/** Right-click a row in the inline Now Playing queue: copy and share actions. */
-	private showSongCopyMenu(evt: MouseEvent, song: Song | undefined): void {
+	/** Right-click a row in the inline Now Playing queue: playlist, copy and
+	 * share actions. */
+	private showInlineQueueMenu(evt: MouseEvent, song: Song | undefined): void {
 		if (!song) return;
+		const addable = !song.streamUrl;
 		const copy = this.plugin.settings.contextualCopyButtons;
 		const share = this.canShareSong(song);
-		if (!copy && !share) return;
+		if (!addable && !copy && !share) return;
 		evt.preventDefault();
 		const menu = new Menu();
+		this.addSongPlaylistItem(menu, song, false);
+		if (copy || share) menu.addSeparator();
 		this.addSongCopyItems(menu, song, false);
-		this.addSongShareItem(menu, song, copy);
+		this.addSongShareItem(menu, song, false);
 		menu.showAtMouseEvent(evt);
 	}
 
@@ -1642,6 +1748,24 @@ export class StereoView extends ItemView {
 			!!song &&
 			!song.streamUrl &&
 			this.plugin.settings.sharingEnabled
+		);
+	}
+
+	private addSongPlaylistItem(
+		menu: Menu,
+		song: Song | undefined,
+		separator: boolean
+	): void {
+		if (!song) return;
+		if (separator) menu.addSeparator();
+		menu.addItem((item) =>
+			item
+				.setTitle("Add to playlist…")
+				.setIcon("list-music")
+				.setDisabled(!!song.streamUrl)
+				.onClick(() => {
+					void this.library.addToPlaylist([song]);
+				})
 		);
 	}
 
@@ -1725,7 +1849,7 @@ export class StereoView extends ItemView {
 			this.setActiveTab("nowPlaying");
 		});
 		this.registerDomEvent(meta, "contextmenu", (evt) =>
-			this.showTrackCopyMenu(evt)
+			this.showTrackMenu(evt)
 		);
 		this.registerDomEvent(this.miniArtistEl, "click", (evt) => {
 			const track = this.plugin.player.getState().track;
@@ -2114,7 +2238,8 @@ export class StereoView extends ItemView {
 		if (!hasTrack || radio) {
 			this.miniHeartContainer.removeClass("stereo-heart-rating-open");
 		}
-		this.favoriteButton.disabled = !state.track || !!state.track.streamUrl;
+		this.playlistButton.disabled = !hasTrack || radio;
+		this.favoriteButton.disabled = !hasTrack || radio;
 		this.favoriteButton.toggleClass("stereo-button-active", currentStarred);
 		this.favoriteButton.setAttribute(
 			"aria-label",
@@ -2126,6 +2251,9 @@ export class StereoView extends ItemView {
 			!this.shareButtonVisible()
 		);
 		this.queueShareButton.disabled = !state.queue.some(
+			(song) => !song.streamUrl
+		);
+		this.queuePlaylistButton.disabled = !state.queue.some(
 			(song) => !song.streamUrl
 		);
 		this.queueShareButton.toggleClass(

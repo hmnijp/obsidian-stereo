@@ -1051,9 +1051,13 @@ export class LibraryPane extends Component {
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Add to playlist…").setIcon("list-music").onClick(() => {
-				void this.addToPlaylist([song]);
-			})
+			item
+				.setTitle("Add to playlist…")
+				.setIcon("list-music")
+				.setDisabled(!!song.streamUrl)
+				.onClick(() => {
+					void this.addToPlaylist([song]);
+				})
 		);
 		if (this.plugin.settings.sharingEnabled && !song.streamUrl) {
 			menu.addItem((item) =>
@@ -1244,6 +1248,13 @@ export class LibraryPane extends Component {
 				);
 			})
 		);
+		menu.addItem((item) =>
+			item.setTitle("Add to playlist…").setIcon("list-music").onClick(() => {
+				void this.withPlaylistSongs(playlist, (songs) =>
+					this.addToPlaylist(songs)
+				);
+			})
+		);
 		if (this.plugin.settings.sharingEnabled) {
 			menu.addItem((item) =>
 				item.setTitle("Share…").setIcon("share-2").onClick(() => {
@@ -1381,8 +1392,13 @@ export class LibraryPane extends Component {
 		await this.plugin.player.playTrack({ ...radioSong(station), streamUrl });
 	}
 
-	/** "Add to playlist…" flow shared by the song and album menus. */
-	private async addToPlaylist(songs: Song[]): Promise<void> {
+	/** "Add to playlist…" flow shared by lists, queues, and the player. */
+	async addToPlaylist(songs: Song[]): Promise<void> {
+		const addable = songs.filter((song) => !song.streamUrl);
+		if (addable.length === 0) {
+			new Notice("There are no tracks to add to a playlist.");
+			return;
+		}
 		let playlists: Playlist[];
 		try {
 			playlists = await this.plugin.client.getPlaylists();
@@ -1390,8 +1406,10 @@ export class LibraryPane extends Component {
 			new Notice("Could not load playlists from the server.");
 			return;
 		}
-		const ids = songs.map((song) => song.id);
-		const added = `Added ${songs.length === 1 ? "1 track" : `${songs.length} tracks`}`;
+		const ids = addable.map((song) => song.id);
+		const added = `Added ${
+			addable.length === 1 ? "1 track" : `${addable.length} tracks`
+		}`;
 		new PlaylistPickerModal(this.plugin.app, playlists, (choice) => {
 			if (choice.kind === "new") {
 				new PlaylistNameModal(

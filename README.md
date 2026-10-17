@@ -42,8 +42,9 @@ your notes.
   icon in Library to play a track again, add it to the queue, or clear history.
 - Browse albums, artists, playlists, and internet radio, with drill-in
   navigation (artist → album → track) and an A–Z scrubber for long lists.
-- Right-click context menus everywhere: play, play next, add to queue, go to
-  artist/album, favorite, start station, share.
+- Right-click context menus everywhere: play, play next, add to queue, add to
+  playlist, go to artist/album, favorite, start station, share. The player's
+  track title menu can add the current track or its whole album/playlist.
 - Favorites synced with your server — heart tracks, albums, and artists from
   the player, menus, or detail pages, and browse them all on a Favorites page.
   Track rows in albums, playlists, search, history, and the queue have their own
@@ -73,8 +74,9 @@ your notes.
 - `Allow downloads` requires Navidrome 0.64+ with `EnableDownloads` enabled.
 
 **Queue & stations**
-- Full-page queue with playback modes, save-as-playlist, and persistence across
-  Obsidian restarts.
+- Full-page queue with playback modes, add-to-playlist for the whole queue, and
+  persistence across Obsidian restarts. Right-click any queue entry to add that
+  track to a playlist.
 - Repeat and shuffle also live on the player. Repeat cycles through off, queue,
   and track; shuffle keeps the mode and restores the previous order. The choice
   survives restarts; Next skips ahead even with repeat track. Live radio does not repeat.
@@ -97,10 +99,10 @@ your notes.
 3. Use **Retest** to confirm the server is reachable, then open the player from
    the ribbon icon or the **Open player** command.
 
-Settings also cover player buttons (random, repeat, shuffle, favorite, station,
-share, volume, and whether repeat/shuffle sit in the transport row), star
-ratings and cover overlays, track click behavior, sharing, Now Playing view,
-lyrics font, and search tuning.
+Settings also cover player buttons (random, repeat, shuffle, favorite, add to
+playlist, station, share, volume, and whether repeat/shuffle sit in the
+transport row), star ratings and cover overlays, track click behavior, sharing,
+Now Playing view, lyrics font, and search tuning.
 
 ## Requirements
 

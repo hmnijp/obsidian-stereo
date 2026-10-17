@@ -113,6 +113,8 @@ export interface StereoSettings {
 	showShuffleButton: boolean;
 	/** Show the heart button for the current track. */
 	showFavoriteButton: boolean;
+	/** Show the add-to-playlist button for the current track. */
+	showPlaylistButton: boolean;
 	/** Show the button that starts a station from the current track. */
 	showStationButton: boolean;
 	/** Show the share button for the current track. */
@@ -162,6 +164,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showRepeatButton: true,
 	showShuffleButton: true,
 	showFavoriteButton: true,
+	showPlaylistButton: true,
 	showStationButton: true,
 	showShareButton: true,
 	repeatShuffleInTransport: false,
@@ -287,6 +290,7 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showRepeatButton",
 	"showShuffleButton",
 	"showFavoriteButton",
+	"showPlaylistButton",
 	"showStationButton",
 	"showShareButton",
 	"repeatShuffleInTransport",
@@ -441,6 +445,11 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Rating button",
 						desc: "Show the star rating button in the extras row, next to the favorite heart.",
 						control: { type: "toggle", key: "showRatingButton" },
+					},
+					{
+						name: "Add to playlist button",
+						desc: "Show the add-to-playlist button in the extras row for the current track.",
+						control: { type: "toggle", key: "showPlaylistButton" },
 					},
 					{
 						name: "Station button",

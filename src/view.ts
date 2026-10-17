@@ -169,6 +169,8 @@ export class StereoView extends ItemView {
 	private playlistButton!: HTMLButtonElement;
 	private favoriteButton!: HTMLButtonElement;
 	private trackShareButton!: HTMLButtonElement;
+	private navidromeButton!: HTMLButtonElement;
+	private downloadButton!: HTMLButtonElement;
 	private errorEl!: HTMLElement;
 
 	// Lyrics panel (swaps in for the art area while toggled on)
@@ -570,6 +572,11 @@ export class StereoView extends ItemView {
 				})
 		);
 
+		if (canAddSong) {
+			menu.addSeparator();
+			this.addSongNavidromeItems(menu, track);
+		}
+
 		if (!copy) {
 			menu.showAtMouseEvent(evt);
 			return;
@@ -658,6 +665,28 @@ export class StereoView extends ItemView {
 		});
 	}
 
+	/** Shared Navidrome entries for current-track and queue-row menus. */
+	private addSongNavidromeItems(menu: Menu, song: Song): void {
+		const albumId = song.albumId;
+		menu.addItem((item) =>
+			item
+				.setTitle("Open album in Navidrome")
+				.setIcon("external-link")
+				.setDisabled(!albumId)
+				.onClick(() => {
+					if (albumId) this.plugin.openNavidromeAlbum(albumId);
+				})
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle("Download track to clipboard")
+				.setIcon("download")
+				.onClick(() => {
+					void this.plugin.downloadTrack(song);
+				})
+		);
+	}
+
 	/** The effective Now Playing view for a track. Internet-radio streams have no
 	 * album art and can't be audio-analysed, so they override the chosen view with
 	 * the internet-radio visualization (unless it's set to follow); library tracks
@@ -715,6 +744,14 @@ export class StereoView extends ItemView {
 			!settings.showRatingButton
 		);
 		this.trackShareButton?.toggleClass("stereo-hidden", !this.shareButtonVisible());
+		this.navidromeButton?.toggleClass(
+			"stereo-hidden",
+			!settings.showNavidromeButton
+		);
+		this.downloadButton?.toggleClass(
+			"stereo-hidden",
+			!settings.showDownloadButton
+		);
 	}
 
 	/** Move repeat/shuffle between the extras row and the transport side zones. */
@@ -1184,7 +1221,8 @@ export class StereoView extends ItemView {
 		});
 
 		// Extras row order: repeat · shuffle · queue · lyrics · station ·
-		// random · playlist · share · rating · favorite · volume.
+		// random · playlist · share · Navidrome · download · rating · favorite ·
+		// volume.
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
 		this.repeatButton = this.iconButton(extrasRow, "repeat", "Repeat off", () => {
@@ -1263,6 +1301,24 @@ export class StereoView extends ItemView {
 		this.registerDomEvent(this.trackShareButton, "contextmenu", (event) => {
 			this.showTrackShareMenu(event);
 		});
+		this.navidromeButton = this.iconButton(
+			extrasRow,
+			"external-link",
+			"Open album in Navidrome",
+			() => {
+				const track = this.plugin.player.getState().track;
+				if (track) this.plugin.openNavidromeTrack(track);
+			}
+		);
+		this.downloadButton = this.iconButton(
+			extrasRow,
+			"download",
+			"Download track to clipboard",
+			() => {
+				const track = this.plugin.player.getState().track;
+				if (track) void this.plugin.downloadTrack(track);
+			}
+		);
 
 		// Rating control in the extras row: a star with the current value that
 		// opens an upward picker with five stars.
@@ -1715,6 +1771,10 @@ export class StereoView extends ItemView {
 		});
 		menu.addSeparator();
 		this.addSongPlaylistItem(menu, song, false);
+		if (song && !song.streamUrl) {
+			menu.addSeparator();
+			this.addSongNavidromeItems(menu, song);
+		}
 		if (
 			this.plugin.settings.contextualCopyButtons ||
 			this.canShareSong(song)
@@ -1737,6 +1797,10 @@ export class StereoView extends ItemView {
 		evt.preventDefault();
 		const menu = new Menu();
 		this.addSongPlaylistItem(menu, song, false);
+		if (addable) {
+			menu.addSeparator();
+			this.addSongNavidromeItems(menu, song);
+		}
 		if (copy || share) menu.addSeparator();
 		this.addSongCopyItems(menu, song, false);
 		this.addSongShareItem(menu, song, false);
@@ -2250,6 +2314,9 @@ export class StereoView extends ItemView {
 			"stereo-hidden",
 			!this.shareButtonVisible()
 		);
+		this.navidromeButton.disabled =
+			!state.track || !!state.track.streamUrl || !state.track.albumId;
+		this.downloadButton.disabled = !state.track || !!state.track.streamUrl;
 		this.queueShareButton.disabled = !state.queue.some(
 			(song) => !song.streamUrl
 		);

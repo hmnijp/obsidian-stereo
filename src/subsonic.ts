@@ -695,6 +695,33 @@ export class SubsonicClient {
 		return toArray(payload?.song);
 	}
 
+	/**
+	 * Base URL for Navidrome's web UI, without the `/rest` API path. Browser
+	 * links prefer WAN so they also work outside the LAN.
+	 */
+	webBaseUrl(): string {
+		const server = this.requireServer();
+		const preferWan = this.getSettings().preferWanForBrowser !== false;
+		const primary = preferWan ? server.wanUrl : server.lanUrl;
+		const secondary = preferWan ? server.lanUrl : server.wanUrl;
+		return (
+			primary ||
+			secondary ||
+			this.connection?.currentUrl() ||
+			serverApiUrl(server)
+		);
+	}
+
+	/** Stable per-account key for local caches; never includes the password. */
+	accountKey(): string {
+		const server = this.requireServer();
+		return `${server.wanUrl || server.lanUrl}\n${server.username}`;
+	}
+
+	downloadUrl(songId: string): string {
+		return this.buildUrl("download", { id: songId });
+	}
+
 	/** URL for the `<audio>` element. Binary endpoint — never fetch this. */
 	streamUrl(songId: string): string {
 		return this.buildUrl("stream", { id: songId });

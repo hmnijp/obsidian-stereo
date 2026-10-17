@@ -35,7 +35,17 @@ your notes.
   and shrink together when space is tight.
 - Media keys and the system playback overlay control Stereo and show the
   current track. The command palette can also open the player in a separate
-  desktop window.
+  desktop window, open the current album in the Navidrome web UI, or download
+  the current track and copy the file to the system clipboard.
+- Right-click a track, album, or playlist to open it in Navidrome. Browser
+  links prefer the server's WAN address; turn off **Server → Prefer WAN for
+  browser links** to use LAN first. Track menus also download the original file
+  and copy it to the clipboard; on Windows the clipboard holds the file itself,
+  while macOS and Linux use their native clipboard tools and fall back to the
+  file path. Each track is cached under the system temp folder
+  (`obsidian-stereo`), so downloading it again reuses the existing file instead
+  of creating `(2)` copies. The Navidrome and download buttons in the extras row
+  can be hidden in settings.
 - Remembers Stereo panes in the left and right sidebars when the plugin is
   disabled and enabled again. Automatic restoration is controlled by
   **Workspace → Restore open players**.
@@ -104,8 +114,9 @@ your notes.
    the ribbon icon or the **Open player** command.
 
 Settings also cover player buttons (random, repeat, shuffle, favorite, add to
-playlist, station, share, volume, and whether repeat/shuffle sit in the
-transport row), sidebar pane restoration, star ratings and cover overlays,
+playlist, station, share, Navidrome, download, volume, and whether
+repeat/shuffle sit in the transport row), browser link address preference,
+sidebar pane restoration, star ratings and cover overlays,
 track click behavior, sharing, Now Playing view, lyrics font, and search
 tuning.
 
@@ -115,6 +126,11 @@ tuning.
 - A server that speaks the Subsonic API — Navidrome, Airsonic-Advanced, Gonic,
   and others.
 - Share links require a Navidrome server with `EnableSharing` enabled.
+- Downloading tracks requires downloads to be enabled on the server
+  (`EnableDownloads` on Navidrome 0.64+).
+- File-to-clipboard support uses PowerShell on Windows, `osascript` on macOS,
+  and `wl-copy`, `xclip`, or `xsel` on Linux. If no file clipboard tool is
+  available, the file path is copied instead.
 
 ## Data and network transparency
 

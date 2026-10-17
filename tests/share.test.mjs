@@ -283,6 +283,46 @@ test("setRating sends the song id and star value", async () => {
 	assert.equal(url.searchParams.get("rating"), "4");
 });
 
+test("webBaseUrl and downloadUrl point at the active server", () => {
+	assert.equal(client.webBaseUrl(), "https://music.example.com");
+	const url = new URL(client.downloadUrl("song-1"));
+	assert.equal(url.pathname, "/rest/download.view");
+	assert.equal(url.searchParams.get("id"), "song-1");
+	assert.equal(url.searchParams.get("u"), "listener");
+	assert.equal(url.searchParams.has("password"), false);
+});
+
+test("webBaseUrl prefers WAN even when the live connection uses LAN", () => {
+	const multiServer = {
+		servers: [
+			{
+				id: "server",
+				name: "Server",
+				wanUrl: "https://wan.example",
+				lanUrl: "https://lan.example",
+				shareBaseUrl: "",
+				username: "listener",
+				password: "secret",
+				connectionMode: "auto",
+			},
+		],
+		activeServerId: "server",
+	};
+	const lanConnection = { currentUrl: () => "https://lan.example" };
+	const wanClient = new subsonic.SubsonicClient(
+		() => multiServer,
+		lanConnection
+	);
+	assert.equal(wanClient.webBaseUrl(), "https://wan.example");
+	assert.equal(wanClient.accountKey(), "https://wan.example\nlistener");
+
+	const lanClient = new subsonic.SubsonicClient(
+		() => ({ ...multiServer, preferWanForBrowser: false }),
+		lanConnection
+	);
+	assert.equal(lanClient.webBaseUrl(), "https://lan.example");
+});
+
 test("createShare sends one id with GET and includes expiry and downloads", async () => {
 	const expiresAt = new Date("2030-01-02T03:04:05.000Z");
 	respondWith([

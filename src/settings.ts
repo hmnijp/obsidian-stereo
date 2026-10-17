@@ -101,6 +101,8 @@ export interface StereoSettings {
 	/** Legacy global share base; migrated into the first ServerConfig. */
 	shareBaseUrl?: string;
 	trackClickAction: TrackClickAction;
+	/** Use the WAN address for Navidrome browser links; LAN when off. */
+	preferWanForBrowser: boolean;
 	/** Report plays back to the server so play counts stay accurate. */
 	scrobbleEnabled: boolean;
 	/** Show the volume button and popover; when off, output stays at 100%. */
@@ -119,6 +121,10 @@ export interface StereoSettings {
 	showStationButton: boolean;
 	/** Show the share button for the current track. */
 	showShareButton: boolean;
+	/** Show the button that opens the current album in Navidrome. */
+	showNavidromeButton: boolean;
+	/** Show the button that downloads the current track to the clipboard. */
+	showDownloadButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
 	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
@@ -160,6 +166,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	servers: [],
 	activeServerId: "",
 	trackClickAction: "play",
+	preferWanForBrowser: true,
 	scrobbleEnabled: true,
 	volumeControl: true,
 	showRandomButton: true,
@@ -169,6 +176,8 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showPlaylistButton: true,
 	showStationButton: true,
 	showShareButton: true,
+	showNavidromeButton: true,
+	showDownloadButton: true,
 	repeatShuffleInTransport: false,
 	restoreOpenViews: true,
 	showRating: false,
@@ -296,6 +305,8 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showPlaylistButton",
 	"showStationButton",
 	"showShareButton",
+	"showNavidromeButton",
+	"showDownloadButton",
 	"repeatShuffleInTransport",
 	"showRating",
 	"showArtOverlays",
@@ -333,6 +344,11 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Connection status",
 						searchable: false,
 						render: (setting) => this.renderStatus(setting),
+					},
+					{
+						name: "Prefer WAN for browser links",
+						desc: "Open Navidrome links with the WAN address. Turn off to prefer the LAN address instead.",
+						control: { type: "toggle", key: "preferWanForBrowser" },
 					},
 				],
 			},
@@ -463,6 +479,16 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Share button",
 						desc: "Show the share button for the current track. Share links must also be enabled.",
 						control: { type: "toggle", key: "showShareButton" },
+					},
+					{
+						name: "Navidrome button",
+						desc: "Show the button that opens the current album in the Navidrome web UI.",
+						control: { type: "toggle", key: "showNavidromeButton" },
+					},
+					{
+						name: "Download button",
+						desc: "Show the button that downloads the current track and copies the file to the clipboard. Requires server downloads.",
+						control: { type: "toggle", key: "showDownloadButton" },
 					},
 					{
 						name: "Repeat and shuffle in transport row",

@@ -160,6 +160,28 @@ export class LibraryPane extends Component {
 			const menu = new Menu();
 			menu.addItem((item) => item.setTitle("Play again").setIcon("play").onClick(() => { void this.plugin.player.playHistoryEntry(entry); }));
 			menu.addItem((item) => item.setTitle("Add to queue").setIcon("list-plus").onClick(() => { void this.plugin.player.playHistoryEntry(entry, true); }));
+			const song = entry.song;
+			if (!song.streamUrl) {
+				const albumId = song.albumId;
+				menu.addSeparator();
+				menu.addItem((item) =>
+					item
+						.setTitle("Open album in Navidrome")
+						.setIcon("external-link")
+						.setDisabled(!albumId)
+						.onClick(() => {
+							if (albumId) this.plugin.openNavidromeAlbum(albumId);
+						})
+				);
+				menu.addItem((item) =>
+					item
+						.setTitle("Download track to clipboard")
+						.setIcon("download")
+						.onClick(() => {
+							void this.plugin.downloadTrack(song);
+						})
+				);
+			}
 			menu.showAtMouseEvent(event);
 		});
 		this.registerDomEvent(this.contentEl, "error", (event) => {
@@ -1066,6 +1088,27 @@ export class LibraryPane extends Component {
 				})
 			);
 		}
+		if (!song.streamUrl) {
+			const albumId = song.albumId;
+			menu.addSeparator();
+			menu.addItem((item) =>
+				item
+					.setTitle("Open album in Navidrome")
+					.setIcon("external-link")
+					.setDisabled(!albumId)
+					.onClick(() => {
+						if (albumId) this.plugin.openNavidromeAlbum(albumId);
+					})
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle("Download track to clipboard")
+					.setIcon("download")
+					.onClick(() => {
+						void this.plugin.downloadTrack(song);
+					})
+			);
+		}
 		if (context?.removeFromPlaylist) {
 			const remove = context.removeFromPlaylist;
 			menu.addItem((item) =>
@@ -1162,6 +1205,14 @@ export class LibraryPane extends Component {
 				})
 			);
 		}
+		menu.addItem((item) =>
+			item
+				.setTitle("Open album in Navidrome")
+				.setIcon("external-link")
+				.onClick(() => {
+					this.plugin.openNavidromeAlbum(album.id);
+				})
+		);
 		if (album.artistId) {
 			menu.addSeparator();
 			menu.addItem((item) =>
@@ -1262,6 +1313,14 @@ export class LibraryPane extends Component {
 				})
 			);
 		}
+		menu.addItem((item) =>
+			item
+				.setTitle("Open playlist in Navidrome")
+				.setIcon("external-link")
+				.onClick(() => {
+					this.plugin.openNavidromePlaylist(playlist.id);
+				})
+		);
 		menu.addSeparator();
 		menu.addItem((item) =>
 			item.setTitle("Rename…").setIcon("pencil").onClick(() => {

@@ -17,6 +17,7 @@ import {
 	StereoSettingTab,
 	migrateSettings,
 } from "./settings";
+import { navidromeAlbumUrl, navidromePlaylistUrl } from "./navidrome";
 import { normalizeServerConfig, type ServerConfig } from "./servers";
 import {
 	ShareCreateModal,
@@ -26,6 +27,7 @@ import {
 } from "./share";
 import type { StationSeed } from "./station";
 import { Song, SubsonicClient } from "./subsonic";
+import { downloadTrackToClipboard } from "./track-download";
 import { STEREO_VIEW_TYPE, StereoView } from "./view";
 
 interface SavedView {
@@ -156,6 +158,32 @@ export default class StereoPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "open-current-album-in-navidrome",
+			name: "Open current album in Navidrome",
+			callback: () => {
+				const track = this.player.getState().track;
+				if (!track) {
+					new Notice("Nothing playing.");
+					return;
+				}
+				this.openNavidromeTrack(track);
+			},
+		});
+
+		this.addCommand({
+			id: "download-current-track",
+			name: "Download current track to clipboard",
+			callback: () => {
+				const track = this.player.getState().track;
+				if (!track) {
+					new Notice("Nothing playing.");
+					return;
+				}
+				void this.downloadTrack(track);
+			},
+		});
+
+		this.addCommand({
 			id: "manage-share-links",
 			name: "Manage share links",
 			callback: () => {
@@ -237,6 +265,68 @@ export default class StereoPlugin extends Plugin {
 	/** Open the share-link manager. */
 	openShares(): void {
 		new SharesModal(this.app, this).open();
+	}
+
+	/** Open an album in the Navidrome web UI. */
+	openNavidromeAlbum(albumId: string): void {
+		this.openNavidromeUrl((base) => navidromeAlbumUrl(base, albumId));
+	}
+
+	/** Open a playlist in the Navidrome web UI. */
+	openNavidromePlaylist(playlistId: string): void {
+		this.openNavidromeUrl((base) => navidromePlaylistUrl(base, playlistId));
+	}
+
+	/** Open a track's album in Navidrome; its song resource has no detail page. */
+	openNavidromeTrack(song: Song): void {
+		if (song.streamUrl) {
+			new Notice("Radio streams cannot be opened in Navidrome.");
+			return;
+		}
+		if (!song.albumId) {
+			new Notice("This track has no album in Navidrome.");
+			return;
+		}
+		this.openNavidromeAlbum(song.albumId);
+	}
+
+	private openNavidromeUrl(build: (base: string) => string): void {
+		try {
+			const url = build(this.client.webBaseUrl());
+			if (!url) {
+				new Notice("Configure a server first.");
+				return;
+			}
+			window.open(url, "_blank");
+		} catch {
+			new Notice("Configure a server first.");
+		}
+	}
+
+	/** Download the original track and put the file on the system clipboard. */
+	async downloadTrack(song: Song): Promise<void> {
+		if (song.streamUrl) {
+			new Notice("Radio streams cannot be downloaded.");
+			return;
+		}
+		const progress = new Notice("Preparing track…", 0);
+		try {
+			const result = await downloadTrackToClipboard(this.client, song);
+			progress.hide();
+			const prefix = result.cached ? "Already downloaded. " : "";
+			new Notice(
+				result.mode === "file"
+					? `${prefix}Track copied to clipboard: ${result.fileName}`
+					: `${prefix}File saved. Path copied to clipboard: ${result.filePath}`
+			);
+		} catch (error) {
+			progress.hide();
+			new Notice(
+				error instanceof Error
+					? error.message
+					: "Could not download the track."
+			);
+		}
 	}
 
 	/** Switch the active server and reload the views. */

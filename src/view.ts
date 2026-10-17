@@ -19,11 +19,11 @@ function svgDataUri(svg: string): string {
 	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-/** Queue is a full page like the others, but has no top tab — the player's
+/** Queue is a full page like the others; it also has a tab, and the player's
  * list icon (and the mini player's) navigates to it. */
 type TabId = "nowPlaying" | "library" | "queue";
 
-const TAB_IDS: TabId[] = ["nowPlaying", "library", "queue"];
+const TAB_IDS: TabId[] = ["nowPlaying", "queue", "library"];
 
 /** Views that render on the canvas visualizer rather than the album-art image. */
 function isVizView(view: NowPlayingView): view is VisualizerMode {
@@ -47,7 +47,7 @@ export class StereoView extends ItemView {
 	plugin: StereoPlugin;
 	private unsubscribe: (() => void) | null = null;
 
-	// Tabs (queue has a page but no tab button)
+	// Tabs
 	private tabButtons: Partial<Record<TabId, HTMLButtonElement>> = {};
 	private pages: Record<TabId, HTMLElement> = {} as Record<TabId, HTMLElement>;
 	private activeTab: TabId = "nowPlaying";
@@ -104,7 +104,13 @@ export class StereoView extends ItemView {
 	private miniThumbPlaceholder!: HTMLElement;
 	private miniTitleEl!: HTMLElement;
 	private miniArtistEl!: HTMLElement;
+	private miniAlbumEl!: HTMLElement;
+	private miniSepEl!: HTMLElement;
+	private miniElapsedEl!: HTMLElement;
+	private miniSeekSlider!: HTMLInputElement;
+	private miniPreviousButton!: HTMLButtonElement;
 	private miniPlayButton!: HTMLButtonElement;
+	private miniNextButton!: HTMLButtonElement;
 
 	// Library & search
 	private library!: LibraryPane;
@@ -124,6 +130,7 @@ export class StereoView extends ItemView {
 	private renderedQueue: Song[] | null = null;
 	private renderedIndex = -1;
 	private seeking = false;
+	private miniSeeking = false;
 
 	constructor(leaf: WorkspaceLeaf, plugin: StereoPlugin) {
 		super(leaf);
@@ -162,6 +169,7 @@ export class StereoView extends ItemView {
 		// Tabs
 		const tabBar = root.createDiv({ cls: "stereo-tabs" });
 		this.tabButtons.nowPlaying = this.tabButton(tabBar, "Now playing", "nowPlaying");
+		this.tabButtons.queue = this.tabButton(tabBar, "Queue", "queue");
 		this.tabButtons.library = this.tabButton(tabBar, "Library", "library");
 
 		this.pagesEl = root.createDiv({ cls: "stereo-pages" });
@@ -799,7 +807,11 @@ export class StereoView extends ItemView {
 	private buildMiniPlayer(root: HTMLElement): void {
 		this.miniEl = root.createDiv({ cls: "stereo-mini" });
 
-		const thumb = this.miniEl.createDiv({ cls: "stereo-mini-thumb" });
+		// Top row: cover and track info. Two text lines (title, then artist —
+		// album) keep the row the same height as the cover. Artist and album
+		// navigate into the library when known.
+		const top = this.miniEl.createDiv({ cls: "stereo-mini-top" });
+		const thumb = top.createDiv({ cls: "stereo-mini-thumb" });
 		this.miniThumbImg = thumb.createEl("img", {
 			cls: "stereo-mini-cover stereo-hidden",
 			attr: { alt: "" },
@@ -810,20 +822,67 @@ export class StereoView extends ItemView {
 		setIcon(this.miniThumbPlaceholder, "music");
 
 		// Clicking the track info opens the full player.
-		const meta = this.miniEl.createDiv({ cls: "stereo-mini-meta" });
+		const meta = top.createDiv({ cls: "stereo-mini-meta" });
 		this.miniTitleEl = meta.createDiv({
 			cls: "stereo-mini-title",
 			text: "Nothing playing",
 		});
-		this.miniArtistEl = meta.createDiv({ cls: "stereo-mini-artist" });
+		const byline = meta.createDiv({ cls: "stereo-mini-byline" });
+		this.miniArtistEl = byline.createSpan({ cls: "stereo-mini-artist" });
+		this.miniSepEl = byline.createSpan({
+			cls: "stereo-mini-sep stereo-hidden",
+			text: "—",
+		});
+		this.miniAlbumEl = byline.createSpan({ cls: "stereo-mini-album" });
 		this.registerDomEvent(meta, "click", () => {
 			this.setActiveTab("nowPlaying");
 		});
+		this.registerDomEvent(this.miniArtistEl, "click", (evt) => {
+			const track = this.plugin.player.getState().track;
+			if (!track?.artistId) return;
+			evt.stopPropagation();
+			this.setActiveTab("library");
+			this.library.openArtist(track.artistId, track.artist ?? "");
+		});
+		this.registerDomEvent(this.miniAlbumEl, "click", (evt) => {
+			const track = this.plugin.player.getState().track;
+			if (!track?.albumId) return;
+			evt.stopPropagation();
+			this.setActiveTab("library");
+			this.library.openAlbum(track.albumId, track.album ?? "");
+		});
 
-		this.miniPlayButton = this.iconButton(this.miniEl, "play", "Play or pause", () => {
+		// Bottom row: elapsed · seek · transport · queue.
+		const bottom = this.miniEl.createDiv({ cls: "stereo-mini-bottom" });
+		this.miniElapsedEl = bottom.createDiv({
+			cls: "stereo-time stereo-mini-time",
+			text: "0:00",
+		});
+		this.miniSeekSlider = bottom.createEl("input", {
+			cls: "stereo-seek stereo-mini-seek",
+			type: "range",
+			attr: { min: "0", max: "0", step: "1", "aria-label": "Seek" },
+		});
+		this.registerDomEvent(this.miniSeekSlider, "input", () => {
+			this.miniSeeking = true;
+			this.miniElapsedEl.setText(
+				formatTime(Number(this.miniSeekSlider.value))
+			);
+		});
+		this.registerDomEvent(this.miniSeekSlider, "change", () => {
+			this.plugin.player.seek(Number(this.miniSeekSlider.value));
+			this.miniSeeking = false;
+		});
+		this.miniPreviousButton = this.iconButton(bottom, "skip-back", "Previous", () => {
+			void this.plugin.player.previous();
+		});
+		this.miniPlayButton = this.iconButton(bottom, "play", "Play or pause", () => {
 			void this.plugin.player.togglePlayPause();
 		});
-		this.iconButton(this.miniEl, "list-music", "Queue", () => {
+		this.miniNextButton = this.iconButton(bottom, "skip-forward", "Next", () => {
+			void this.plugin.player.next();
+		});
+		this.iconButton(bottom, "list-music", "Queue", () => {
 			this.setActiveTab("queue");
 		});
 	}
@@ -929,8 +988,23 @@ export class StereoView extends ItemView {
 		this.playButton.disabled = !state.track;
 		this.miniTitleEl.setText(state.track?.title ?? "Nothing playing");
 		this.miniArtistEl.setText(state.track?.artist ?? "");
+		this.miniAlbumEl.setText(state.track?.album ?? "");
+		this.miniArtistEl.toggleClass("stereo-mini-link", !!state.track?.artistId);
+		this.miniAlbumEl.toggleClass("stereo-mini-link", !!state.track?.albumId);
+		this.miniSepEl.toggleClass(
+			"stereo-hidden",
+			!state.track?.artist || !state.track?.album
+		);
+		this.miniSeekSlider.max = String(Math.floor(state.duration));
+		this.miniSeekSlider.disabled = !state.track || state.duration <= 0;
+		if (!this.miniSeeking) {
+			this.miniSeekSlider.value = String(Math.floor(state.position));
+			this.miniElapsedEl.setText(formatTime(state.position));
+		}
 		setIcon(this.miniPlayButton, state.playing ? "pause" : "play");
 		this.miniPlayButton.disabled = !state.track;
+		this.miniPreviousButton.disabled = !state.track;
+		this.miniNextButton.disabled = !this.plugin.player.canNext();
 		this.favoriteButton.disabled = !state.track || !!state.track.streamUrl;
 		this.favoriteButton.toggleClass("stereo-button-active", !!state.track?.starred);
 		this.favoriteButton.setAttribute(

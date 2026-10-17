@@ -528,31 +528,139 @@
 	height: 22px;
 }
 
-.stereo-play-button {
-	color: var(--text-normal);
-}
-
 .stereo-transport-row .stereo-play-button svg {
 	width: 34px;
 	height: 34px;
 }
 
-/* Volume */
-
-.stereo-volume-row {
-	display: flex;
-	align-items: center;
-	gap: var(--size-4-2);
+/* Muted state colors: pause is red, play is green. Opacity keeps them calm
+   in both light and dark themes without dimming the button chrome. */
+.stereo-play-toggle:not(:disabled) svg {
+	opacity: 0.7;
 }
 
-.stereo-volume-icon {
-	display: flex;
-	color: var(--text-muted);
+.stereo-play-toggle.stereo-playing {
+	color: var(--color-red);
 }
 
-.stereo-volume {
-	flex: 1;
-	min-width: 0; /* let the slider shrink instead of overflowing the row */
+.stereo-play-toggle:not(.stereo-playing) {
+	color: var(--color-green);
+}
+
+.stereo-play-toggle:not(:disabled):hover svg {
+	opacity: 0.9;
+}
+
+/* The play state reads brighter than the muted pause state. */
+.stereo-play-toggle:not(.stereo-playing):not(:disabled) svg {
+	opacity: 0.95;
+}
+
+.stereo-play-toggle:disabled {
+	color: var(--text-faint);
+}
+
+/* Volume popover (extras row) */
+
+.stereo-volume-control {
+	position: relative;
+	display: flex;
+}
+
+.stereo-volume-popup {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + var(--size-2-2));
+	z-index: 20;
+	width: 48px;
+	height: 234px;
+	--stereo-volume-level: 0%;
+	--stereo-volume-ratio: 0;
+	--stereo-volume-track: 198px;
+	--stereo-volume-slot: 16px;
+	padding: var(--size-2-2);
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	box-shadow: var(--shadow-s);
+}
+
+/* Decorative right triangle: right angle top-left, base on top (100%),
+   hypotenuse on the right, apex at the bottom-left (0%). */
+.stereo-volume-rail {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 28px;
+	height: var(--stereo-volume-track);
+	transform: translate(-50%, -50%);
+	clip-path: polygon(0 0, 100% 0, 0 100%);
+	background: linear-gradient(
+		to top,
+		var(--interactive-accent) 0 var(--stereo-volume-level),
+		var(--background-modifier-border) var(--stereo-volume-level) 100%
+	);
+	pointer-events: none;
+	z-index: 1;
+}
+
+/* The visible slot is a plain div so it stays perfectly centred and sized
+   regardless of theme or native thumb styling. It follows the slider value. */
+.stereo-volume-slot {
+	position: absolute;
+	left: 50%;
+	bottom: calc(
+		(100% - var(--stereo-volume-track)) / 2 +
+			(var(--stereo-volume-track) - var(--stereo-volume-slot)) *
+			var(--stereo-volume-ratio)
+	);
+	width: 40px;
+	height: var(--stereo-volume-slot);
+	transform: translateX(-50%);
+	border-radius: 999px;
+	background: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--background-secondary);
+	pointer-events: none;
+	z-index: 2;
+}
+
+/* The native input stays on top for dragging, clicking and keyboard. Its
+   own track and thumb are invisible, so only the div slot shows through. */
+.stereo-volume-popup input.stereo-volume {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: var(--stereo-volume-track);
+	height: 40px;
+	margin: 0;
+	padding: 0;
+	border: none;
+	overflow: visible;
+	appearance: none;
+	-webkit-appearance: none;
+	background: transparent;
+	transform: translate(-50%, -50%) rotate(-90deg);
+	z-index: 3;
+}
+
+.stereo-volume-popup input.stereo-volume::-webkit-slider-runnable-track {
+	height: 8px;
+	margin: 0;
+	border: none;
+	border-radius: 4px;
+	background: transparent;
+}
+
+.stereo-volume-popup input.stereo-volume::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	width: 16px;
+	height: 40px;
+	margin-top: -16px;
+	border: none;
+	border-radius: 999px;
+	background: transparent;
+	box-shadow: none;
+	opacity: 0;
 }
 
 /* Extras */
@@ -1078,6 +1186,21 @@
 .stereo-mini-bottom .stereo-button svg {
 	width: 18px;
 	height: 18px;
+}
+
+.stereo-mini-bottom .stereo-play-toggle svg {
+	width: 24px;
+	height: 24px;
+}
+
+.stereo-mini-bottom .stereo-mini-skip svg {
+	width: 12px;
+	height: 12px;
+}
+
+.stereo-mini-top .stereo-mini-heart svg {
+	width: 12px;
+	height: 12px;
 }
 
 .stereo-mini-time {

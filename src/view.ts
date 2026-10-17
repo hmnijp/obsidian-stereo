@@ -68,7 +68,12 @@ export class StereoView extends ItemView {
 	private previousButton!: HTMLButtonElement;
 	private playButton!: HTMLButtonElement;
 	private nextButton!: HTMLButtonElement;
+	private volumeControlEl!: HTMLElement;
+	private volumeButton!: HTMLButtonElement;
+	private volumePopup!: HTMLElement;
 	private volumeSlider!: HTMLInputElement;
+	private volumeWheelDelta = 0;
+	private volumeHideTimer: number | null = null;
 	private shuffleButton!: HTMLButtonElement;
 	private repeatButton!: HTMLButtonElement;
 	private queueButton!: HTMLButtonElement;
@@ -111,6 +116,7 @@ export class StereoView extends ItemView {
 	private miniPreviousButton!: HTMLButtonElement;
 	private miniPlayButton!: HTMLButtonElement;
 	private miniNextButton!: HTMLButtonElement;
+	private miniFavoriteButton!: HTMLButtonElement;
 
 	// Library & search
 	private library!: LibraryPane;
@@ -194,6 +200,7 @@ export class StereoView extends ItemView {
 			{
 				onActiveChange: (active) => {
 					this.searchActive = active;
+					if (active) this.closeVolumePopup();
 					this.searchResultsEl.toggleClass("stereo-hidden", !active);
 					this.pagesEl.toggleClass("stereo-hidden", active);
 					this.updateMiniVisibility();
@@ -237,6 +244,7 @@ export class StereoView extends ItemView {
 	}
 
 	async onClose(): Promise<void> {
+		this.clearVolumeHideTimer();
 		this.removeChild(this.library);
 		this.viz.stop();
 		this.statusBarObserver?.disconnect();
@@ -598,24 +606,13 @@ export class StereoView extends ItemView {
 			void this.plugin.player.togglePlayPause();
 		});
 		this.playButton.addClass("stereo-play-button");
+		this.playButton.addClass("stereo-play-toggle");
 		this.nextButton = this.iconButton(transportRow, "skip-forward", "Next", () => {
 			void this.plugin.player.next();
 		});
 
-		// Volume row
-		const volumeRow = page.createDiv({ cls: "stereo-volume-row" });
-		setIcon(volumeRow.createSpan({ cls: "stereo-volume-icon" }), "volume-2");
-		this.volumeSlider = volumeRow.createEl("input", {
-			cls: "stereo-volume",
-			type: "range",
-			attr: { min: "0", max: "100", step: "1", "aria-label": "Volume" },
-		});
-		this.registerDomEvent(this.volumeSlider, "input", () => {
-			this.plugin.player.setVolume(Number(this.volumeSlider.value) / 100);
-		});
-
-		// Extras row below volume: queue · lyrics · station · favorite (playback
-		// modes live on the queue page — they operate on the queue).
+		// Extras row: queue · lyrics · random · station · favorite · volume
+		// (playback modes live on the queue page — they operate on the queue).
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.queueButton = this.iconButton(extrasRow, "list-music", "Queue", () => {
 			this.setActiveTab("queue");
@@ -665,7 +662,145 @@ export class StereoView extends ItemView {
 			});
 		});
 
+		// Volume is a popover so the player keeps one compact control row. It
+		// sits last in the extras row and opens upward, right-aligned.
+		this.volumeControlEl = extrasRow.createDiv({
+			cls: "stereo-volume-control",
+		});
+		this.volumeButton = this.iconButton(
+			this.volumeControlEl,
+			"volume-2",
+			"Volume",
+			() => {
+				this.toggleVolumePopup();
+			}
+		);
+		this.volumeButton.setAttribute("aria-haspopup", "true");
+		this.volumeButton.setAttribute("aria-expanded", "false");
+		this.volumePopup = this.volumeControlEl.createDiv({
+			cls: "stereo-volume-popup stereo-hidden",
+		});
+		// Decorative triangular track and the slot both live behind the
+		// native range input, which stays fully interactive.
+		this.volumePopup.createDiv({ cls: "stereo-volume-rail" });
+		this.volumePopup.createDiv({ cls: "stereo-volume-slot" });
+		this.volumeSlider = this.volumePopup.createEl("input", {
+			cls: "stereo-volume",
+			type: "range",
+			attr: {
+				min: "0",
+				max: "100",
+				step: "1",
+				"aria-label": "Volume",
+				"aria-orientation": "vertical",
+			},
+		});
+		this.registerDomEvent(this.volumeSlider, "input", () => {
+			this.plugin.player.setVolume(Number(this.volumeSlider.value) / 100);
+		});
+
+		// Wheel over the button or the slider changes volume in 5% steps.
+		// Delta is accumulated so trackpads do not race through the range.
+		this.registerDomEvent(
+			this.volumeControlEl,
+			"wheel",
+			(evt) => {
+				if (evt.deltaY === 0) return;
+				evt.preventDefault();
+				if (!this.volumePopup.hasClass("stereo-hidden")) {
+					this.scheduleVolumeHide();
+				}
+				let delta = evt.deltaY;
+				if (evt.deltaMode === 1) delta *= 16;
+				else if (evt.deltaMode === 2) delta *= 100;
+				this.volumeWheelDelta += delta;
+				const steps = Math.trunc(this.volumeWheelDelta / 100);
+				if (steps === 0) return;
+				this.volumeWheelDelta -= steps * 100;
+				const volume = this.plugin.player.getState().volume - steps * 0.05;
+				this.plugin.player.setVolume(Math.round(volume * 100) / 100);
+				this.openVolumePopup(false);
+			},
+			{ passive: false }
+		);
+
+		// Close on a click elsewhere in the window, including popout windows.
+		const doc = this.containerEl.ownerDocument;
+		this.registerDomEvent(doc, "pointerdown", (evt) => {
+			if (this.volumePopup.hasClass("stereo-hidden")) return;
+			const target = evt.target as Node | null;
+			if (target && this.volumeControlEl.contains(target)) {
+				// Keep it open while the user is grabbing the slider/button.
+				this.clearVolumeHideTimer();
+				return;
+			}
+			this.closeVolumePopup();
+		});
+		this.registerDomEvent(doc, "pointerup", () => {
+			if (this.volumePopup.hasClass("stereo-hidden")) return;
+			this.scheduleVolumeHide();
+		});
+		this.registerDomEvent(doc, "pointercancel", () => {
+			if (this.volumePopup.hasClass("stereo-hidden")) return;
+			this.scheduleVolumeHide();
+		});
+		this.registerDomEvent(doc, "keydown", (evt) => {
+			if (this.volumePopup.hasClass("stereo-hidden")) return;
+			if (evt.key === "Escape") {
+				this.closeVolumePopup(true);
+				return;
+			}
+			const target = evt.target as Node | null;
+			if (target && this.volumeControlEl.contains(target)) {
+				this.scheduleVolumeHide();
+			}
+		});
+
 		this.errorEl = page.createDiv({ cls: "stereo-error" });
+	}
+
+	private toggleVolumePopup(): void {
+		if (this.volumePopup.hasClass("stereo-hidden")) {
+			this.openVolumePopup();
+		} else {
+			this.closeVolumePopup();
+		}
+	}
+
+	private openVolumePopup(focusSlider = true): void {
+		this.volumePopup.removeClass("stereo-hidden");
+		this.volumeButton.setAttribute("aria-expanded", "true");
+		this.volumeButton.addClass("stereo-button-active");
+		if (focusSlider) this.volumeSlider.focus();
+		this.scheduleVolumeHide();
+	}
+
+	private closeVolumePopup(returnFocus = false): void {
+		this.clearVolumeHideTimer();
+		if (!this.volumePopup || this.volumePopup.hasClass("stereo-hidden")) return;
+		this.volumePopup.addClass("stereo-hidden");
+		this.volumeButton.setAttribute("aria-expanded", "false");
+		this.volumeButton.removeClass("stereo-button-active");
+		if (returnFocus) this.volumeButton.focus();
+	}
+
+	/** Hide the popover after three seconds without interaction. */
+	private scheduleVolumeHide(): void {
+		this.clearVolumeHideTimer();
+		this.volumeHideTimer = window.setTimeout(() => {
+			this.volumeHideTimer = null;
+			// Only hand focus back if focus is still in the control; otherwise
+			// auto-hiding must not steal it from wherever the user went.
+			const active = this.volumeControlEl.ownerDocument.activeElement;
+			this.closeVolumePopup(this.volumeControlEl.contains(active));
+		}, 3000);
+	}
+
+	private clearVolumeHideTimer(): void {
+		if (this.volumeHideTimer !== null) {
+			window.clearTimeout(this.volumeHideTimer);
+			this.volumeHideTimer = null;
+		}
 	}
 
 	private buildQueuePage(page: HTMLElement): void {
@@ -852,7 +987,23 @@ export class StereoView extends ItemView {
 			this.library.openAlbum(track.albumId, track.album ?? "");
 		});
 
-		// Bottom row: elapsed · seek · transport · queue.
+		// Like sits on the right edge of the top row, sized like the mini
+		// transport skips.
+		this.miniFavoriteButton = this.iconButton(
+			top,
+			"heart",
+			"Add to favorites",
+			() => {
+				const track = this.plugin.player.getState().track;
+				if (!track || track.streamUrl) return;
+				this.plugin.toggleSongFavorite(track).catch(() => {
+					new Notice("Could not update favorites on the server.");
+				});
+			}
+		);
+		this.miniFavoriteButton.addClass("stereo-mini-heart");
+
+		// Bottom row: elapsed · seek · transport.
 		const bottom = this.miniEl.createDiv({ cls: "stereo-mini-bottom" });
 		this.miniElapsedEl = bottom.createDiv({
 			cls: "stereo-time stereo-mini-time",
@@ -876,15 +1027,15 @@ export class StereoView extends ItemView {
 		this.miniPreviousButton = this.iconButton(bottom, "skip-back", "Previous", () => {
 			void this.plugin.player.previous();
 		});
+		this.miniPreviousButton.addClass("stereo-mini-skip");
 		this.miniPlayButton = this.iconButton(bottom, "play", "Play or pause", () => {
 			void this.plugin.player.togglePlayPause();
 		});
+		this.miniPlayButton.addClass("stereo-play-toggle");
 		this.miniNextButton = this.iconButton(bottom, "skip-forward", "Next", () => {
 			void this.plugin.player.next();
 		});
-		this.iconButton(bottom, "list-music", "Queue", () => {
-			this.setActiveTab("queue");
-		});
+		this.miniNextButton.addClass("stereo-mini-skip");
 	}
 
 	private saveQueueAsPlaylist(): void {
@@ -923,6 +1074,7 @@ export class StereoView extends ItemView {
 
 	private setActiveTab(tab: TabId): void {
 		// Picking a tab always returns to the pages, ending any active search.
+		this.closeVolumePopup();
 		this.search?.close();
 		this.activeTab = tab;
 		for (const id of TAB_IDS) {
@@ -985,6 +1137,7 @@ export class StereoView extends ItemView {
 		this.albumEl.toggleClass("stereo-link", !!state.track?.albumId);
 
 		setIcon(this.playButton, state.playing ? "pause" : "play");
+		this.playButton.toggleClass("stereo-playing", state.playing);
 		this.playButton.disabled = !state.track;
 		this.miniTitleEl.setText(state.track?.title ?? "Nothing playing");
 		this.miniArtistEl.setText(state.track?.artist ?? "");
@@ -1002,9 +1155,19 @@ export class StereoView extends ItemView {
 			this.miniElapsedEl.setText(formatTime(state.position));
 		}
 		setIcon(this.miniPlayButton, state.playing ? "pause" : "play");
+		this.miniPlayButton.toggleClass("stereo-playing", state.playing);
 		this.miniPlayButton.disabled = !state.track;
 		this.miniPreviousButton.disabled = !state.track;
 		this.miniNextButton.disabled = !this.plugin.player.canNext();
+		this.miniFavoriteButton.disabled = !state.track || !!state.track.streamUrl;
+		this.miniFavoriteButton.toggleClass(
+			"stereo-button-active",
+			!!state.track?.starred
+		);
+		this.miniFavoriteButton.setAttribute(
+			"aria-label",
+			state.track?.starred ? "Remove from favorites" : "Add to favorites"
+		);
 		this.favoriteButton.disabled = !state.track || !!state.track.streamUrl;
 		this.favoriteButton.toggleClass("stereo-button-active", !!state.track?.starred);
 		this.favoriteButton.setAttribute(
@@ -1047,6 +1210,14 @@ export class StereoView extends ItemView {
 		}
 
 		this.volumeSlider.value = String(Math.round(state.volume * 100));
+		this.volumePopup.style.setProperty(
+			"--stereo-volume-level",
+			`${Math.round(state.volume * 100)}%`
+		);
+		this.volumePopup.style.setProperty(
+			"--stereo-volume-ratio",
+			String(state.volume)
+		);
 
 		this.errorEl.setText(state.error ?? "");
 		this.errorEl.toggleClass("stereo-error-visible", state.error != null);

@@ -2,3 +2,6 @@ node_modules/
 main.js
 data.json
 .DS_Store
+
+# Local agent notes, not shared yet
+AGENTS.md

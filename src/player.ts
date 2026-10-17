@@ -35,6 +35,10 @@ export interface PlayerState {
 	/** 0..1 */
 	volume: number;
 	repeat: RepeatMode;
+	/** Continuous random playback: generated tracks form a queue you can walk. */
+	random: boolean;
+	/** The queue is in shuffle mode; turning it off restores the original order. */
+	shuffle: boolean;
 	/** Seed of the active station, or null when the queue is a plain queue. */
 	station: StationSeed | null;
 	/** Album/playlist the queue was loaded from, cleared by queue edits. */
@@ -53,6 +57,9 @@ export interface PlayerSnapshot {
 	volume: number;
 	/** Optional for saved sessions from before repeat support. */
 	repeat?: RepeatMode;
+	/** Optional for saved sessions from before random/shuffle modes. */
+	random?: boolean;
+	shuffle?: boolean;
 	station?: StationSeed;
 	/** Optional for saved sessions from before queue-origin support. */
 	queueOrigin?: QueueOrigin;
@@ -69,12 +76,21 @@ interface QueueUndoSnapshot {
 	queueOrigin: QueueOrigin | null;
 }
 
+/** Original order captured when shuffle mode is enabled. */
+interface ShuffleBackup {
+	queue: Song[];
+	index: number;
+	queueOrigin: QueueOrigin | null;
+}
+
 /** Pressing previous after this many seconds restarts the track instead. */
 const PREVIOUS_RESTARTS_AFTER_SECONDS = 3;
 /** Persist playback position at most this often while playing. */
 const POSITION_PERSIST_INTERVAL_SECONDS = 5;
 /** A play scrobbles at half the track or after this many seconds, whichever first. */
 const SCROBBLE_AFTER_SECONDS = 240;
+/** Keep the generated random queue bounded while still allowing long backtracking. */
+const RANDOM_QUEUE_LIMIT = 100;
 
 /**
  * Framework-free playback store. Owns the single `<audio>` element for the
@@ -97,6 +113,9 @@ export class PlayerStore {
 	/** Position to seek to once metadata loads (used when resuming a restored queue). */
 	private pendingSeek: number | null = null;
 	private undoSnapshot: QueueUndoSnapshot | null = null;
+	private shuffleBackup: ShuffleBackup | null = null;
+	/** Invalidates in-flight random-song requests when the mode changes. */
+	private randomRequest = 0;
 	private loadVersion = 0;
 	// Visualizer plumbing (lazy — nothing is created unless a visualizer view
 	// asks for the analyser). Playback never routes through the audio graph.
@@ -118,6 +137,8 @@ export class PlayerStore {
 		duration: 0,
 		volume: 0.5,
 		repeat: "off",
+		random: false,
+		shuffle: false,
 		station: null,
 		queueOrigin: null,
 		canUndo: false,
@@ -189,8 +210,15 @@ export class PlayerStore {
 					: -1;
 		const track = index >= 0 ? (snapshot.queue[index] ?? null) : null;
 		const volume = Math.max(0, Math.min(1, snapshot.volume));
+		const random = snapshot.random === true && snapshot.queue.length > 0;
+		const savedRepeat =
+			snapshot.repeat === "queue" || snapshot.repeat === "track"
+				? snapshot.repeat
+				: "off";
 		this.audio.volume = volume;
 		this.pendingSeek = track ? Math.max(0, snapshot.position) : null;
+		this.randomRequest++;
+		this.shuffleBackup = null;
 		this.update({
 			queue: snapshot.queue,
 			index,
@@ -199,7 +227,9 @@ export class PlayerStore {
 			position: track ? Math.max(0, snapshot.position) : 0,
 			duration: track?.duration ?? 0,
 			volume,
-			repeat: snapshot.repeat === "queue" || snapshot.repeat === "track" ? snapshot.repeat : "off",
+			repeat: random && savedRepeat !== "track" ? "off" : savedRepeat,
+			random,
+			shuffle: !random && snapshot.shuffle === true,
 			station: snapshot.station ?? null,
 			queueOrigin: isQueueOrigin(snapshot.queueOrigin)
 				? snapshot.queueOrigin
@@ -227,6 +257,8 @@ export class PlayerStore {
 			position: this.state.position,
 			volume: this.state.volume,
 			repeat: this.state.repeat,
+			random: this.state.random,
+			shuffle: this.state.shuffle,
 			station: this.state.station ?? undefined,
 			queueOrigin: this.state.queueOrigin ?? undefined,
 		});
@@ -253,7 +285,16 @@ export class PlayerStore {
 		this.invalidateUndo();
 		this.emptyQueue();
 		const track = snapshot.queue[snapshot.index] ?? null;
-		this.update({ ...snapshot, track, playing: false, duration: track?.duration ?? 0 });
+		this.randomRequest++;
+		this.shuffleBackup = null;
+		this.update({
+			...snapshot,
+			track,
+			playing: false,
+			duration: track?.duration ?? 0,
+			random: false,
+			shuffle: false,
+		});
 		if (track) await this.loadCurrent(snapshot.playing, snapshot.position);
 		else this.persistNow();
 	}
@@ -297,13 +338,17 @@ export class PlayerStore {
 		origin: QueueOrigin | null = null
 	): Promise<void> {
 		if (songs.length === 0) return;
-		const index = Math.max(0, Math.min(startIndex, songs.length - 1));
+		const prepared = this.prepareQueue(songs, startIndex, origin);
 		this.captureUndo();
+		this.randomRequest++;
+		this.shuffleBackup = prepared.backup;
 		this.update({
-			queue: [...songs],
-			index,
+			queue: prepared.queue,
+			index: prepared.index,
 			station: null,
-			queueOrigin: origin,
+			queueOrigin: prepared.backup ? null : origin,
+			random: false,
+			shuffle: this.state.shuffle && prepared.queue.length >= 2,
 		});
 		await this.loadCurrent(true);
 	}
@@ -312,6 +357,8 @@ export class PlayerStore {
 	async addToQueue(songs: Song[]): Promise<void> {
 		if (songs.length === 0) return;
 		this.invalidateUndo();
+		this.shuffleBackup = null;
+		this.randomRequest++;
 		const queue = [...this.state.queue, ...songs];
 		if (this.state.index < 0) {
 			this.update({
@@ -319,11 +366,12 @@ export class PlayerStore {
 				index: this.state.queue.length,
 				station: null,
 				queueOrigin: null,
+				random: false,
 			});
 			await this.loadCurrent(true);
 			return;
 		}
-		this.update({ queue, queueOrigin: null });
+		this.update({ queue, queueOrigin: null, random: false });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -332,9 +380,11 @@ export class PlayerStore {
 	playNext(songs: Song[]): void {
 		if (songs.length === 0) return;
 		this.invalidateUndo();
+		this.shuffleBackup = null;
+		this.randomRequest++;
 		const queue = [...this.state.queue];
 		queue.splice(this.state.index + 1, 0, ...songs);
-		this.update({ queue, queueOrigin: null });
+		this.update({ queue, queueOrigin: null, random: false });
 		this.prefetchNext();
 		this.persistNow();
 	}
@@ -342,6 +392,7 @@ export class PlayerStore {
 	/** Jump to a specific queue position and play it. */
 	async playAt(index: number): Promise<void> {
 		if (index < 0 || index >= this.state.queue.length) return;
+		this.randomRequest++;
 		this.update({ index });
 		await this.loadCurrent(true);
 	}
@@ -350,6 +401,7 @@ export class PlayerStore {
 	async removeAt(index: number): Promise<void> {
 		if (index < 0 || index >= this.state.queue.length) return;
 		this.invalidateUndo();
+		this.shuffleBackup = null;
 		const queue = [...this.state.queue];
 		queue.splice(index, 1);
 
@@ -401,6 +453,8 @@ export class PlayerStore {
 
 	private emptyQueue(): void {
 		this.loadVersion++;
+		this.randomRequest++;
+		this.shuffleBackup = null;
 		this.audio.pause();
 		this.audio.removeAttribute("src");
 		this.audio.load();
@@ -413,6 +467,8 @@ export class PlayerStore {
 			playing: false,
 			position: 0,
 			duration: 0,
+			random: false,
+			shuffle: false,
 			station: null,
 			queueOrigin: null,
 			error: null,
@@ -436,45 +492,265 @@ export class PlayerStore {
 	}
 
 	canNext(): boolean {
+		if (this.state.random) return this.state.track != null;
 		return this.nextIndex(false) >= 0;
 	}
 
-	/** Advance explicitly, wrapping only for repeat queue on songs. */
+	/** Advance explicitly. Random mode walks the generated queue and fetches only at its end. */
 	async next(): Promise<void> {
 		const index = this.nextIndex(false);
-		if (index < 0) return;
-		this.update({ index });
-		await this.loadCurrent(true);
+		if (index >= 0) {
+			this.update({ index });
+			await this.loadCurrent(true);
+			return;
+		}
+		if (this.state.random) await this.playRandomSong(false);
 	}
 
 	cycleRepeat(): void {
-		const repeat = this.state.repeat === "off" ? "queue" : this.state.repeat === "queue" ? "track" : "off";
+		const repeat: RepeatMode = this.state.random
+			? this.state.repeat === "track"
+				? "off"
+				: "track"
+			: this.state.repeat === "off"
+				? "queue"
+				: this.state.repeat === "queue"
+					? "track"
+					: "off";
 		this.update({ repeat });
 		this.prefetchNext();
 		this.persistNow();
 	}
 
+	/** Toggle shuffle mode, restoring the original order when it is turned off. */
+	toggleShuffle(): void {
+		if (this.state.random) return;
+		if (this.state.shuffle) {
+			this.disableShuffle();
+			return;
+		}
+		if (this.state.queue.length < 2) return;
+		const backup: ShuffleBackup = {
+			queue: [...this.state.queue],
+			index: this.state.index,
+			queueOrigin: this.state.queueOrigin,
+		};
+		const queue = this.shuffledSongs(this.state.queue, this.state.index);
+		this.shuffleBackup = backup;
+		this.invalidateUndo();
+		this.update({
+			queue,
+			index: this.state.index >= 0 ? 0 : this.state.index,
+			shuffle: true,
+			queueOrigin: null,
+		});
+		this.prefetchNext();
+		this.persistNow();
+	}
+
+	private disableShuffle(): void {
+		const backup = this.shuffleBackup;
+		if (backup && this.sameSongEntries(backup.queue, this.state.queue)) {
+			const current = this.state.index >= 0 ? this.state.queue[this.state.index] : null;
+			let index = backup.index;
+			if (current) {
+				const ordinal = this.state.queue
+					.slice(0, Math.max(0, this.state.index))
+					.filter((song) => song === current).length;
+				const found = this.indexOfOccurrence(backup.queue, current, ordinal);
+				index = found >= 0
+					? found
+					: Math.max(0, Math.min(backup.index, backup.queue.length - 1));
+			}
+			this.update({
+				queue: backup.queue,
+				index,
+				shuffle: false,
+				queueOrigin: backup.queueOrigin,
+			});
+		} else {
+			this.update({ shuffle: false });
+		}
+		this.shuffleBackup = null;
+		this.prefetchNext();
+		this.persistNow();
+	}
+
+	/** Same multiset of entries, ignoring their order. */
+	private sameSongEntries(first: Song[], second: Song[]): boolean {
+		if (first.length !== second.length) return false;
+		const counts = new Map<Song, number>();
+		for (const song of first) counts.set(song, (counts.get(song) ?? 0) + 1);
+		for (const song of second) {
+			const count = counts.get(song);
+			if (!count) return false;
+			if (count === 1) counts.delete(song);
+			else counts.set(song, count - 1);
+		}
+		return counts.size === 0;
+	}
+
+	private indexOfOccurrence(queue: Song[], song: Song, ordinal: number): number {
+		let seen = 0;
+		for (let i = 0; i < queue.length; i++) {
+			if (queue[i] !== song) continue;
+			if (seen === ordinal) return i;
+			seen++;
+		}
+		return -1;
+	}
+
+	private shuffledIndexOrder(length: number, current: number): number[] {
+		const rest = Array.from({ length }, (_, i) => i).filter((i) => i !== current);
+		for (let i = rest.length - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			const value = rest[i]!;
+			rest[i] = rest[j]!;
+			rest[j] = value;
+		}
+		return current >= 0 && current < length ? [current, ...rest] : rest;
+	}
+
+	private shuffledSongs(songs: Song[], current: number): Song[] {
+		return this.shuffledIndexOrder(songs.length, current).map((i) => songs[i]!);
+	}
+
 	/**
 	 * Shuffle the queue: the current track moves to the top and the rest are
-	 * reordered randomly behind it. One-shot action, not a mode.
+	 * reordered randomly behind it. One-shot helper; UI uses toggleShuffle().
 	 */
 	shuffleQueue(): void {
 		if (this.state.queue.length < 2) return;
 		const current = this.state.index;
-		const rest = this.state.queue.map((_, i) => i).filter((i) => i !== current);
-		for (let i = rest.length - 1; i > 0; i--) {
-			const j = Math.floor(Math.random() * (i + 1));
-			const a = rest[i]!;
-			rest[i] = rest[j]!;
-			rest[j] = a;
-		}
-		const order = current >= 0 ? [current, ...rest] : rest;
+		const order = this.shuffledIndexOrder(this.state.queue.length, current);
 		if (order.every((original, i) => original === i)) return;
 		const queue = order.map((i) => this.state.queue[i]!);
 		this.invalidateUndo();
 		this.update({ queue, index: current >= 0 ? 0 : current, queueOrigin: null });
 		this.prefetchNext();
 		this.persistNow();
+	}
+
+	/** Enable or disable continuous random playback. Returns false on fetch failure. */
+	async toggleRandom(): Promise<boolean> {
+		if (this.state.random) {
+			this.setRandomMode(false);
+			return true;
+		}
+		const previous = {
+			repeat: this.state.repeat,
+			shuffle: this.state.shuffle,
+			backup: this.shuffleBackup,
+		};
+		this.setRandomMode(true);
+		// Do not interrupt a track the listener is already into. The mode takes
+		// over when it ends or when Next is pressed.
+		const track = this.state.track;
+		if (
+			track &&
+			this.audio.src &&
+			!this.audio.ended &&
+			this.state.position > PREVIOUS_RESTARTS_AFTER_SECONDS
+		) {
+			this.captureUndo();
+			this.shuffleBackup = null;
+			this.update({
+				queue: [track],
+				index: 0,
+				station: null,
+				queueOrigin: null,
+				error: null,
+			});
+			this.prefetchNext();
+			this.persistNow();
+			return true;
+		}
+		const ok = await this.playRandomSong(true);
+		if (!ok && this.state.random) {
+			this.setRandomMode(false);
+			this.shuffleBackup = previous.backup;
+			this.update({ repeat: previous.repeat, shuffle: previous.shuffle });
+			this.persistNow();
+		}
+		return ok;
+	}
+
+	private setRandomMode(enabled: boolean): void {
+		this.randomRequest++;
+		if (enabled) {
+			// Random owns the queue, but repeat-one is still meaningful.
+			this.shuffleBackup = null;
+			this.update({
+				random: true,
+				repeat: this.state.repeat === "track" ? "track" : "off",
+				shuffle: false,
+				error: null,
+			});
+		} else {
+			this.update({ random: false });
+		}
+		this.persistNow();
+	}
+
+	private async playRandomSong(initial: boolean): Promise<boolean> {
+		const token = ++this.randomRequest;
+		if (!this.state.random) return false;
+		try {
+			const songs = await this.client.getRandomSongs(1);
+			if (token !== this.randomRequest || !this.state.random) return false;
+			const song = songs[0];
+			if (!song) throw new Error("The server returned no random song.");
+			if (initial) this.captureUndo();
+			let queue: Song[];
+			let index: number;
+			if (initial) {
+				queue = [song];
+				index = 0;
+			} else {
+				queue = [...this.state.queue, song];
+				index = this.state.index + 1;
+				if (queue.length > RANDOM_QUEUE_LIMIT) {
+					const drop = queue.length - RANDOM_QUEUE_LIMIT;
+					queue = queue.slice(drop);
+					index -= drop;
+				}
+			}
+			this.update({
+				queue,
+				index,
+				station: null,
+				queueOrigin: null,
+				error: null,
+			});
+			await this.loadCurrent(true);
+			return true;
+		} catch (error) {
+			if (token !== this.randomRequest || !this.state.random) return false;
+			this.update({
+				playing: false,
+				error: error instanceof Error
+					? error.message
+					: "Could not fetch a random song.",
+			});
+			return false;
+		}
+	}
+
+	/** Shuffle a freshly supplied queue and remember its original order. */
+	private prepareQueue(
+		songs: Song[],
+		startIndex: number,
+		origin: QueueOrigin | null
+	): { queue: Song[]; index: number; backup: ShuffleBackup | null } {
+		const index = Math.max(0, Math.min(startIndex, songs.length - 1));
+		if (!this.state.shuffle || songs.length < 2) {
+			return { queue: [...songs], index, backup: null };
+		}
+		return {
+			queue: this.shuffledSongs(songs, index),
+			index: 0,
+			backup: { queue: [...songs], index, queueOrigin: origin },
+		};
 	}
 
 	/**
@@ -496,18 +772,37 @@ export class PlayerStore {
 			this.getSettings().stationBatchSize
 		);
 		if (batch.length === 0 || connection !== historyConnection(this.getSettings())) return 0;
-		const queue = lead ? [lead, ...batch] : batch;
+		const songs = lead ? [lead, ...batch] : batch;
+		const prepared = this.prepareQueue(songs, 0, null);
 		this.captureUndo();
+		this.randomRequest++;
+		this.shuffleBackup = prepared.backup;
 
 		if (lead && this.state.track?.id === lead.id && this.audio.src) {
-			this.update({ queue, index: 0, station: seed, queueOrigin: null, error: null });
+			this.update({
+				queue: prepared.queue,
+				index: prepared.index,
+				station: seed,
+				queueOrigin: null,
+				random: false,
+				shuffle: this.state.shuffle && prepared.queue.length >= 2,
+				error: null,
+			});
 			this.prefetchNext();
 			this.persistNow();
-			return queue.length;
+			return prepared.queue.length;
 		}
-		this.update({ queue, index: 0, station: seed, queueOrigin: null, error: null });
+		this.update({
+			queue: prepared.queue,
+			index: prepared.index,
+			station: seed,
+			queueOrigin: null,
+			random: false,
+			shuffle: this.state.shuffle && prepared.queue.length >= 2,
+			error: null,
+		});
 		await this.loadCurrent(true);
-		return queue.length;
+		return prepared.queue.length;
 	}
 
 	/**
@@ -532,18 +827,22 @@ export class PlayerStore {
 			batch.length === 0 || this.state.queue !== originalQueue || this.state.station !== seed
 		) return 0;
 		this.invalidateUndo();
+		this.shuffleBackup = null;
 		this.update({ queue: [...this.state.queue, ...batch] });
 		this.prefetchNext();
 		this.persistNow();
 		return batch.length;
 	}
 
-	/** Restart the current track, or go to the previous one near a track's start. */
+	/** Step back: normally restart near the start, random mode always walks the queue. */
 	async previous(): Promise<void> {
-		if (
-			this.state.position > PREVIOUS_RESTARTS_AFTER_SECONDS ||
-			this.state.index <= 0
-		) {
+		// A natural end may already have started fetching the next random song.
+		if (this.state.random) this.randomRequest++;
+		const restart =
+			!this.state.random &&
+			!this.audio.ended &&
+			this.state.position > PREVIOUS_RESTARTS_AFTER_SECONDS;
+		if (restart || this.state.index <= 0) {
 			this.seek(0);
 			return;
 		}
@@ -567,6 +866,16 @@ export class PlayerStore {
 		}
 		if (this.audio.paused) {
 			if (this.audio.ended) {
+				if (this.state.random) {
+					const index = this.nextIndex(true);
+					if (index >= 0) {
+						this.update({ index });
+						await this.loadCurrent(true);
+					} else {
+						await this.playRandomSong(false);
+					}
+					return;
+				}
 				await this.loadCurrent(true);
 				return;
 			}
@@ -739,6 +1048,8 @@ export class PlayerStore {
 	destroy(): void {
 		this.persistNow();
 		this.loadVersion++;
+		this.randomRequest++;
+		this.shuffleBackup = null;
 		this.invalidateUndo();
 		const session = navigator.mediaSession;
 		if (session) {
@@ -949,10 +1260,14 @@ export class PlayerStore {
 		if (index >= 0) {
 			this.update({ index });
 			void this.loadCurrent(true);
-		} else {
-			this.update({ playing: false, position: 0 });
-			this.persistNow();
+			return;
 		}
+		if (this.state.random) {
+			void this.playRandomSong(false);
+			return;
+		}
+		this.update({ playing: false, position: 0 });
+		this.persistNow();
 	};
 
 	private onError = (): void => {

@@ -133,9 +133,16 @@ export class StereoView extends ItemView {
 	private volumeWheelDelta = 0;
 	private volumeHideTimer: number | null = null;
 	private volumeDismissCleanup: (() => void) | null = null;
+	/** Movable mode buttons: extras row or transport row. */
 	private shuffleButton!: HTMLButtonElement;
 	private repeatButton!: HTMLButtonElement;
+	/** Separate mode buttons in the queue header. */
+	private queueShuffleButton!: HTMLButtonElement;
+	private queueRepeatButton!: HTMLButtonElement;
+	private transportLeft!: HTMLElement;
+	private transportRight!: HTMLElement;
 	private queueButton!: HTMLButtonElement;
+	private randomButton!: HTMLButtonElement;
 	private stationButton!: HTMLButtonElement;
 	private favoriteButton!: HTMLButtonElement;
 	private trackShareButton!: HTMLButtonElement;
@@ -548,6 +555,7 @@ export class StereoView extends ItemView {
 	applyNowPlayingView(): void {
 		this.applyLyricsStyle();
 		this.syncVolumeControl();
+		this.syncExtrasUi();
 		const state = this.plugin.player.getState();
 		this.setEffectiveView(this.effectiveNowPlayingView(state.track));
 		this.render(state);
@@ -558,7 +566,46 @@ export class StereoView extends ItemView {
 		const enabled = this.plugin.settings.sharingEnabled;
 		this.library?.setSharingEnabled(enabled);
 		this.queueShareButton?.toggleClass("stereo-hidden", !enabled);
-		this.trackShareButton?.toggleClass("stereo-hidden", !enabled);
+		this.trackShareButton?.toggleClass("stereo-hidden", !this.shareButtonVisible());
+	}
+
+	private shareButtonVisible(): boolean {
+		return (
+			this.plugin.settings.sharingEnabled &&
+			this.plugin.settings.showShareButton
+		);
+	}
+
+	/** Place the mode buttons and hide the extras controls disabled in settings. */
+	private syncExtrasUi(): void {
+		this.syncTransportModes();
+		const settings = this.plugin.settings;
+		this.repeatButton?.toggleClass("stereo-hidden", !settings.showRepeatButton);
+		this.shuffleButton?.toggleClass("stereo-hidden", !settings.showShuffleButton);
+		this.randomButton?.toggleClass("stereo-hidden", !settings.showRandomButton);
+		this.stationButton?.toggleClass("stereo-hidden", !settings.showStationButton);
+		this.favoriteButton?.toggleClass("stereo-hidden", !settings.showFavoriteButton);
+		this.trackShareButton?.toggleClass("stereo-hidden", !this.shareButtonVisible());
+	}
+
+	/** Move repeat/shuffle between the extras row and the transport side zones. */
+	private syncTransportModes(): void {
+		if (
+			!this.transportLeft ||
+			!this.transportRight ||
+			!this.extrasRow ||
+			!this.queueButton ||
+			!this.repeatButton ||
+			!this.shuffleButton
+		) return;
+		if (this.plugin.settings.repeatShuffleInTransport) {
+			this.transportLeft.appendChild(this.repeatButton);
+			this.transportRight.appendChild(this.shuffleButton);
+			return;
+		}
+		// Return to the agreed extras order: repeat, shuffle, queue, …
+		this.extrasRow.insertBefore(this.repeatButton, this.queueButton);
+		this.extrasRow.insertBefore(this.shuffleButton, this.queueButton);
 	}
 
 	/** Rebuild library data after the active server changes. */
@@ -961,24 +1008,43 @@ export class StereoView extends ItemView {
 			this.seeking = false;
 		});
 
-		// Transport row
+		// Transport row: side zones optionally hold repeat (left) and shuffle
+		// (right); the central prev/play/next group stays centred either way.
 		const transportRow = page.createDiv({ cls: "stereo-transport-row" });
-		this.previousButton = this.iconButton(transportRow, "skip-back", "Previous", () => {
+		this.transportLeft = transportRow.createDiv({
+			cls: "stereo-transport-side stereo-transport-side-left",
+		});
+		const transportMain = transportRow.createDiv({ cls: "stereo-transport-main" });
+		this.previousButton = this.iconButton(transportMain, "skip-back", "Previous", () => {
 			void this.plugin.player.previous();
 		});
-		this.playButton = this.iconButton(transportRow, "play", "Play or pause", () => {
+		this.playButton = this.iconButton(transportMain, "play", "Play or pause", () => {
 			void this.plugin.player.togglePlayPause();
 		});
 		this.playButton.addClass("stereo-play-button");
 		this.playButton.addClass("stereo-play-toggle");
-		this.nextButton = this.iconButton(transportRow, "skip-forward", "Next", () => {
+		this.nextButton = this.iconButton(transportMain, "skip-forward", "Next", () => {
 			void this.plugin.player.next();
 		});
+		this.transportRight = transportRow.createDiv({
+			cls: "stereo-transport-side stereo-transport-side-right",
+		});
 
-		// Extras row: queue · lyrics · random · station · favorite · share · volume
-		// (playback modes live on the queue page — they operate on the queue).
+		// Extras row order: repeat · shuffle · queue · lyrics · station ·
+		// random · share · favorite · volume.
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
+		this.repeatButton = this.iconButton(extrasRow, "repeat", "Repeat off", () => {
+			this.plugin.player.cycleRepeat();
+		});
+		this.shuffleButton = this.iconButton(
+			extrasRow,
+			"list-ordered",
+			"Shuffle off",
+			() => {
+				this.plugin.player.toggleShuffle();
+			}
+		);
 		this.queueButton = this.iconButton(extrasRow, "list-music", "Queue", () => {
 			this.queueVisible = !this.queueVisible;
 			if (this.queueVisible) this.lyricsVisible = false;
@@ -988,21 +1054,6 @@ export class StereoView extends ItemView {
 			this.lyricsVisible = !this.lyricsVisible;
 			if (this.lyricsVisible) this.queueVisible = false;
 			this.applyArtPanels();
-		});
-		this.iconButton(extrasRow, "dices", "Play a random song", () => {
-			void (async () => {
-				try {
-					const songs = await this.plugin.client.getRandomSongs(1);
-					const song = songs[0];
-					if (!song) {
-						new Notice("The server returned no random song.");
-						return;
-					}
-					await this.plugin.player.playTrack(song);
-				} catch {
-					new Notice("Could not fetch a random song from the server.");
-				}
-			})();
 		});
 		this.stationButton = this.iconButton(
 			extrasRow,
@@ -1022,13 +1073,19 @@ export class StereoView extends ItemView {
 				);
 			}
 		);
-		this.favoriteButton = this.iconButton(extrasRow, "heart", "Add to favorites", () => {
-			const track = this.plugin.player.getState().track;
-			if (!track || track.streamUrl) return;
-			this.plugin.toggleSongFavorite(track).catch(() => {
-				new Notice("Could not update favorites on the server.");
-			});
-		});
+		this.randomButton = this.iconButton(
+			extrasRow,
+			"dices",
+			"Random play off",
+			() => {
+				void (async () => {
+					const ok = await this.plugin.player.toggleRandom();
+					if (!ok && this.plugin.player.getState().error) {
+						new Notice("Could not fetch a random song from the server.");
+					}
+				})();
+			}
+		);
 		this.trackShareButton = this.iconButton(
 			extrasRow,
 			"share-2",
@@ -1042,6 +1099,13 @@ export class StereoView extends ItemView {
 		this.trackShareButton.setAttribute("aria-haspopup", "menu");
 		this.registerDomEvent(this.trackShareButton, "contextmenu", (event) => {
 			this.showTrackShareMenu(event);
+		});
+		this.favoriteButton = this.iconButton(extrasRow, "heart", "Add to favorites", () => {
+			const track = this.plugin.player.getState().track;
+			if (!track || track.streamUrl) return;
+			this.plugin.toggleSongFavorite(track).catch(() => {
+				new Notice("Could not update favorites on the server.");
+			});
 		});
 
 		this.errorEl = page.createDiv({ cls: "stereo-error" });
@@ -1256,10 +1320,15 @@ export class StereoView extends ItemView {
 				this.moreButton.disabled = false;
 			}
 		});
-		this.shuffleButton = this.iconButton(actions, "shuffle", "Shuffle queue", () => {
-			this.plugin.player.shuffleQueue();
-		});
-		this.repeatButton = this.iconButton(actions, "repeat", "Repeat off", () => {
+		this.queueShuffleButton = this.iconButton(
+			actions,
+			"list-ordered",
+			"Shuffle off",
+			() => {
+				this.plugin.player.toggleShuffle();
+			}
+		);
+		this.queueRepeatButton = this.iconButton(actions, "repeat", "Repeat off", () => {
 			this.plugin.player.cycleRepeat();
 		});
 		const saveButton = actions.createEl("button", {
@@ -1767,7 +1836,7 @@ export class StereoView extends ItemView {
 		this.trackShareButton.disabled = !state.track || !!state.track.streamUrl;
 		this.trackShareButton.toggleClass(
 			"stereo-hidden",
-			!this.plugin.settings.sharingEnabled
+			!this.shareButtonVisible()
 		);
 		this.queueShareButton.disabled = !state.queue.some(
 			(song) => !song.streamUrl
@@ -1778,13 +1847,38 @@ export class StereoView extends ItemView {
 		);
 		this.previousButton.disabled = !state.track;
 		this.nextButton.disabled = !this.plugin.player.canNext();
-		this.shuffleButton.disabled = state.queue.length < 2;
-		const repeatLabel = `Repeat ${state.repeat}`;
-		setIcon(this.repeatButton, state.repeat === "track" ? "repeat-1" : "repeat");
-		this.repeatButton.toggleClass("stereo-button-active", state.repeat !== "off");
-		this.repeatButton.setAttribute("aria-label", repeatLabel);
-		this.repeatButton.setAttribute("aria-pressed", String(state.repeat !== "off"));
-		this.repeatButton.setAttribute("title", repeatLabel);
+
+		const shuffleDisabled =
+			state.random || (state.queue.length < 2 && !state.shuffle);
+		const shuffleLabel = state.shuffle ? "Shuffle on" : "Shuffle off";
+		for (const button of [this.shuffleButton, this.queueShuffleButton]) {
+			setIcon(button, state.shuffle ? "shuffle" : "list-ordered");
+			button.disabled = shuffleDisabled;
+			button.toggleClass("stereo-button-active", state.shuffle);
+			button.setAttribute("aria-label", shuffleLabel);
+			button.setAttribute("aria-pressed", String(state.shuffle));
+			button.setAttribute("title", shuffleLabel);
+		}
+
+		const repeatLabel = state.repeat !== "off"
+			? `Repeat ${state.repeat}`
+			: "Repeat off";
+		for (const button of [this.repeatButton, this.queueRepeatButton]) {
+			setIcon(button, state.repeat === "track" ? "repeat-1" : "repeat");
+			button.disabled = false;
+			button.toggleClass("stereo-button-active", state.repeat !== "off");
+			button.setAttribute("aria-label", repeatLabel);
+			button.setAttribute("aria-pressed", String(state.repeat !== "off"));
+			button.setAttribute("title", repeatLabel);
+		}
+
+		const randomLabel = state.random ? "Random play on" : "Random play off";
+		this.randomButton.disabled = false;
+		this.randomButton.toggleClass("stereo-button-active", state.random);
+		this.randomButton.setAttribute("aria-label", randomLabel);
+		this.randomButton.setAttribute("aria-pressed", String(state.random));
+		this.randomButton.setAttribute("title", randomLabel);
+
 		this.stationButton.disabled = !state.track || !!state.track.streamUrl;
 		this.stationButton.toggleClass("stereo-button-active", !!state.station);
 
@@ -1797,7 +1891,11 @@ export class StereoView extends ItemView {
 		}
 
 		this.queueTitleEl.setText(
-			state.station ? `Station: ${state.station.label}` : "Queue"
+			state.station
+				? `Station: ${state.station.label}`
+				: state.random
+					? "Random"
+					: "Queue"
 		);
 		this.moreButton.toggleClass("stereo-hidden", !state.station);
 		this.undoButton.disabled = !state.canUndo;

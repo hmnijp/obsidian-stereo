@@ -105,6 +105,20 @@ export interface StereoSettings {
 	scrobbleEnabled: boolean;
 	/** Show the volume button and popover; when off, output stays at 100%. */
 	volumeControl: boolean;
+	/** Show the dice button in the extras row. */
+	showRandomButton: boolean;
+	/** Show the repeat button in the extras row or transport row. */
+	showRepeatButton: boolean;
+	/** Show the shuffle button in the extras row or transport row. */
+	showShuffleButton: boolean;
+	/** Show the heart button for the current track. */
+	showFavoriteButton: boolean;
+	/** Show the button that starts a station from the current track. */
+	showStationButton: boolean;
+	/** Show the share button for the current track. */
+	showShareButton: boolean;
+	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
+	repeatShuffleInTransport: boolean;
 	/** Show copy actions in contextual menus. */
 	contextualCopyButtons: boolean;
 	/** Show share actions and the share-link manager. */
@@ -138,6 +152,13 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	trackClickAction: "play",
 	scrobbleEnabled: true,
 	volumeControl: true,
+	showRandomButton: true,
+	showRepeatButton: true,
+	showShuffleButton: true,
+	showFavoriteButton: true,
+	showStationButton: true,
+	showShareButton: true,
+	repeatShuffleInTransport: false,
 	contextualCopyButtons: true,
 	sharingEnabled: true,
 	shareDefaultTtl: "7d",
@@ -253,6 +274,13 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"lyricsAutoSize",
 	"lyricsAlign",
 	"volumeControl",
+	"showRandomButton",
+	"showRepeatButton",
+	"showShuffleButton",
+	"showFavoriteButton",
+	"showStationButton",
+	"showShareButton",
+	"repeatShuffleInTransport",
 ]);
 
 export class StereoSettingTab extends PluginSettingTab {
@@ -370,6 +398,47 @@ export class StereoSettingTab extends PluginSettingTab {
 									await this.plugin.saveSettings();
 								}
 							),
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Player buttons",
+				items: [
+					{
+						name: "Random song button",
+						desc: "Show the dice toggle. It keeps playing random songs until you turn it off.",
+						control: { type: "toggle", key: "showRandomButton" },
+					},
+					{
+						name: "Repeat button",
+						desc: "Show the repeat button in the extras row or the transport row.",
+						control: { type: "toggle", key: "showRepeatButton" },
+					},
+					{
+						name: "Shuffle button",
+						desc: "Show the shuffle button in the extras row or the transport row.",
+						control: { type: "toggle", key: "showShuffleButton" },
+					},
+					{
+						name: "Favorite button",
+						desc: "Show the heart button for the current track.",
+						control: { type: "toggle", key: "showFavoriteButton" },
+					},
+					{
+						name: "Station button",
+						desc: "Show the button that starts a station from the current track.",
+						control: { type: "toggle", key: "showStationButton" },
+					},
+					{
+						name: "Share button",
+						desc: "Show the share button for the current track. Share links must also be enabled.",
+						control: { type: "toggle", key: "showShareButton" },
+					},
+					{
+						name: "Repeat and shuffle in transport row",
+						desc: "Place repeat to the left of Previous and shuffle to the right of Next, using the transport button size. When off, both stay in the extras row.",
+						control: { type: "toggle", key: "repeatShuffleInTransport" },
 					},
 				],
 			},

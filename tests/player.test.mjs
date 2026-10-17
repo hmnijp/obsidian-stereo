@@ -52,6 +52,7 @@ globalThis.Audio = FakeAudio;
 const song = (id) => ({ id, title: id, artistId: id, duration: 240 });
 const a = song("a"), b = song("b"), c = song("c"), d = song("d");
 const seed = { kind: "song", id: "a", label: "A station" };
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test("history waits for actual audio, ignoring restore, queue edits, prefetch and failed starts", async (t) => {
 	const { store, audio } = setup(t);
@@ -656,6 +657,255 @@ for (const mode of ["off", "queue", "track"]) {
 		assert.equal(store.getState().track, other);
 	});
 }
+
+test("shuffle mode restores the original order after manual reordering", async (t) => {
+	const { store, saved } = setup(t);
+	await store.setQueue([a, b, c, d], 1);
+	const original = store.getState().queue;
+	store.toggleShuffle();
+	assert.equal(store.getState().shuffle, true);
+	assert.equal(store.getState().track, b);
+	assert.equal(store.getState().index, 0);
+	assert.equal(saved.at(-1).shuffle, true);
+	store.shuffleQueue();
+	assert.equal(store.getState().track, b);
+	store.toggleShuffle();
+	assert.equal(store.getState().shuffle, false);
+	assert.deepEqual(store.getState().queue, original);
+	assert.equal(store.getState().track, b);
+	assert.equal(store.getState().index, 1);
+	assert.equal(saved.at(-1).shuffle, false);
+});
+
+test("shuffle mode stops restoring after queue entries change", async (t) => {
+	const { store } = setup(t);
+	await store.setQueue([a, b, c], 0);
+	store.toggleShuffle();
+	store.playNext([d]);
+	const edited = [...store.getState().queue];
+	assert.equal(store.getState().shuffle, true);
+	store.toggleShuffle();
+	assert.equal(store.getState().shuffle, false);
+	assert.deepEqual(store.getState().queue, edited);
+	assert.equal(store.getState().queue.length, 4);
+});
+
+test("shuffle applies to a new queue and keeps its original order", async (t) => {
+	const { store } = setup(t);
+	await store.setQueue([a, b, c], 0);
+	store.toggleShuffle();
+	await store.setQueue([d, b, c], 1);
+	assert.equal(store.getState().shuffle, true);
+	assert.equal(store.getState().index, 0);
+	assert.equal(store.getState().track, b);
+	store.toggleShuffle();
+	assert.equal(store.getState().shuffle, false);
+	assert.deepEqual(store.getState().queue, [d, b, c]);
+	assert.equal(store.getState().index, 1);
+	assert.equal(store.getState().track, b);
+	await store.setQueue([a, b], 0);
+	store.toggleShuffle();
+	assert.equal(store.getState().shuffle, true);
+	await store.setQueue([a], 0);
+	assert.equal(store.getState().shuffle, false);
+});
+
+test("random and shuffle flags restore safely", (t) => {
+	const { store } = setup(t);
+	store.restore({ queue: [a, b], index: 0, position: 12, volume: 0.4, shuffle: true });
+	assert.equal(store.getState().shuffle, true);
+	assert.equal(store.getState().random, false);
+	store.restore({
+		queue: [a],
+		index: 0,
+		position: 12,
+		volume: 0.4,
+		random: true,
+		repeat: "track",
+		shuffle: true,
+	});
+	assert.equal(store.getState().random, true);
+	assert.equal(store.getState().shuffle, false);
+	assert.equal(store.getState().repeat, "track");
+	store.restore({ queue: [], index: -1, position: 0, volume: 0.4, random: true });
+	assert.equal(store.getState().random, false);
+});
+
+test("random mode keeps a loaded track past three seconds and starts from it", async (t) => {
+	const { store, audio, client } = setup(t);
+	await store.setQueue([a, b], 0);
+	audio.tick(4);
+	repeatMode(store, "track");
+	let calls = 0;
+	client.getRandomSongs = async () => {
+		calls++;
+		return [c];
+	};
+	assert.equal(await store.toggleRandom(), true);
+	assert.equal(calls, 0);
+	assert.equal(store.getState().random, true);
+	assert.equal(store.getState().track, a);
+	assert.deepEqual(store.getState().queue, [a]);
+	assert.equal(store.getState().repeat, "track");
+	assert.equal(store.getState().shuffle, false);
+	await store.next();
+	assert.equal(calls, 1);
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["a", "c"]);
+	assert.equal(store.getState().track, c);
+});
+
+test("random mode replaces a track that has only just started", async (t) => {
+	const { store, audio, client } = setup(t);
+	await store.setQueue([a, b], 0);
+	audio.tick(1);
+	client.getRandomSongs = async () => [c];
+	assert.equal(await store.toggleRandom(), true);
+	assert.equal(store.getState().track, c);
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["c"]);
+});
+
+test("random mode walks its generated queue and fetches only at the end", async (t) => {
+	const { store, audio, client } = setup(t);
+	const pool = [b, c, d, a];
+	let calls = 0;
+	client.getRandomSongs = async () => [pool[calls++]];
+	assert.equal(await store.toggleRandom(), true);
+	await store.next();
+	await store.next();
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["b", "c", "d"]);
+	assert.equal(store.getState().index, 2);
+	const fetched = calls;
+	audio.tick(5);
+	await store.previous();
+	assert.equal(store.getState().track?.id, "c");
+	await store.previous();
+	assert.equal(store.getState().track?.id, "b");
+	assert.equal(calls, fetched);
+	await store.next();
+	assert.equal(store.getState().track?.id, "c");
+	await store.next();
+	assert.equal(store.getState().track?.id, "d");
+	assert.equal(calls, fetched);
+	await store.next();
+	assert.equal(store.getState().track?.id, "a");
+	assert.equal(calls, fetched + 1);
+});
+
+test("natural completion advances inside the random queue and appends at the end", async (t) => {
+	const { store, audio, client } = setup(t);
+	const pool = [b, c, d, a];
+	let calls = 0;
+	client.getRandomSongs = async () => [pool[calls++]];
+	assert.equal(await store.toggleRandom(), true);
+	audio.finish();
+	await flush();
+	audio.finish();
+	await flush();
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["b", "c", "d"]);
+	assert.equal(calls, 3);
+	await store.previous();
+	audio.finish();
+	await flush();
+	assert.equal(store.getState().track?.id, "d");
+	assert.equal(calls, 3);
+	audio.finish();
+	await flush();
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["b", "c", "d", "a"]);
+	assert.equal(calls, 4);
+});
+
+test("repeat track works inside random mode and cycles off/track", async (t) => {
+	const { store, audio, client } = setup(t);
+	const pool = [b, c, d];
+	let calls = 0;
+	client.getRandomSongs = async () => [pool[calls++]];
+	assert.equal(await store.toggleRandom(), true);
+	store.cycleRepeat();
+	assert.equal(store.getState().repeat, "track");
+	audio.finish();
+	await flush();
+	assert.equal(store.getState().track, b);
+	assert.equal(calls, 1);
+	await store.next();
+	assert.equal(store.getState().track, c);
+	assert.equal(calls, 2);
+	store.cycleRepeat();
+	assert.equal(store.getState().repeat, "off");
+	audio.finish();
+	await flush();
+	assert.equal(store.getState().track, d);
+	assert.equal(calls, 3);
+});
+
+test("turning random off keeps the generated queue and cancels pending fetches", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getRandomSongs = async () => [b];
+	assert.equal(await store.toggleRandom(), true);
+	let resolve;
+	client.getRandomSongs = () => new Promise((done) => { resolve = done; });
+	const pending = store.next();
+	assert.equal(await store.toggleRandom(), true);
+	resolve([c]);
+	await pending;
+	assert.equal(store.getState().random, false);
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["b"]);
+	const assignments = audio.assignments;
+	audio.finish();
+	await flush();
+	assert.equal(audio.assignments, assignments);
+	assert.equal(store.getState().playing, false);
+});
+
+test("previous cancels a pending random fetch and moves back in the queue", async (t) => {
+	const { store, audio, client } = setup(t);
+	const pool = [b, c, d];
+	let calls = 0;
+	client.getRandomSongs = async () => [pool[calls++]];
+	assert.equal(await store.toggleRandom(), true);
+	await store.next();
+	let resolve;
+	client.getRandomSongs = () => new Promise((done) => { resolve = done; });
+	audio.finish();
+	await store.previous();
+	resolve([d]);
+	await flush();
+	assert.equal(store.getState().track?.id, "b");
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["b", "c"]);
+	assert.equal(store.getState().random, true);
+});
+
+test("random fetch failures leave the player stopped or retryable", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getRandomSongs = async () => { throw new Error("offline"); };
+	assert.equal(await store.toggleRandom(), false);
+	assert.equal(store.getState().random, false);
+	assert.equal(store.getState().error, "offline");
+
+	client.getRandomSongs = async () => [b];
+	assert.equal(await store.toggleRandom(), true);
+	client.getRandomSongs = async () => { throw new Error("offline"); };
+	audio.finish();
+	await flush();
+	assert.equal(store.getState().random, true);
+	assert.equal(store.getState().error, "offline");
+	assert.equal(store.getState().playing, false);
+});
+
+test("explicit playback and queue edits turn random off", async (t) => {
+	const { store, client } = setup(t);
+	client.getRandomSongs = async () => [b];
+	assert.equal(await store.toggleRandom(), true);
+	await store.playTrack(c);
+	assert.equal(store.getState().random, false);
+
+	assert.equal(await store.toggleRandom(), true);
+	store.playNext([d]);
+	assert.equal(store.getState().random, false);
+
+	assert.equal(await store.toggleRandom(), true);
+	await store.addToQueue([a]);
+	assert.equal(store.getState().random, false);
+});
 
 test("prefetch follows repeat boundaries, queue edits and shuffled order without changing playback", async (t) => {
 	const { store, audio } = setup(t);

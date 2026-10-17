@@ -587,10 +587,35 @@
 
 .stereo-transport-row {
 	display: flex;
+	align-items: center;
+	container-type: inline-size;
+}
+
+/* Side zones hold repeat (left) and shuffle (right) when the setting moves
+   them here. Empty zones still take equal space, keeping prev/play/next centred. */
+.stereo-transport-side {
+	display: flex;
+	align-items: center;
+	flex: 1 1 0;
+	min-width: 0;
+}
+
+.stereo-transport-side-left {
+	justify-content: flex-start;
+}
+
+.stereo-transport-side-right {
+	justify-content: flex-end;
+}
+
+.stereo-transport-main {
+	display: flex;
 	justify-content: center;
 	align-items: center;
+	flex: 0 0 auto;
 	/* Generous spacing normally; the gaps give way in very narrow panes. */
 	gap: min(var(--size-4-5), 6%);
+	gap: min(var(--size-4-5), 6cqw);
 }
 
 .stereo-transport-row .stereo-button svg {
@@ -635,6 +660,12 @@
 .stereo-volume-control {
 	position: relative;
 	display: flex;
+}
+
+.stereo-volume-control > .stereo-button {
+	width: 100%;
+	height: 100%;
+	padding: 0;
 }
 
 .stereo-volume-popup {
@@ -737,8 +768,37 @@
 
 .stereo-extras-row {
 	display: flex;
+	align-items: center;
 	justify-content: center;
-	gap: var(--size-4-2);
+	flex-wrap: nowrap;
+	gap: clamp(2px, 1.6%, 8px);
+}
+
+/* Every control keeps the historical maximum button size when the row is
+   roomy, and shrinks together when the pane is narrow. */
+.stereo-extras-row > .stereo-button,
+.stereo-extras-row > .stereo-volume-control {
+	flex: 1 1 0;
+	min-width: 16px;
+	max-width: 32px;
+	min-height: 16px;
+	max-height: 32px;
+	aspect-ratio: 1;
+	height: auto;
+}
+
+.stereo-extras-row > .stereo-button {
+	padding: 0;
+}
+
+.stereo-extras-row > .stereo-button svg,
+.stereo-extras-row > .stereo-volume-control > .stereo-button svg {
+	width: 62%;
+	height: 62%;
+	min-width: 12px;
+	min-height: 12px;
+	max-width: 18px;
+	max-height: 18px;
 }
 
 .stereo-button-active {

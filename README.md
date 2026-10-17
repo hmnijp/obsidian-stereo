@@ -25,7 +25,14 @@ your notes.
   takes over when you navigate elsewhere.
 - Lyrics with follow-along highlighting for synced lyrics — click a line to
   seek. Plain lyrics scroll normally.
-- Feeling lucky? A dice button plays a random song from your library.
+- Repeat, shuffle, and random playback modes. Repeat cycles through off, queue,
+  and track; shuffle has on/off states and restores the original order when
+  turned off; the dice toggle keeps generating random songs. It does not
+  interrupt a track already past three seconds, and the generated tracks form a
+  queue: Previous and Next walk it, with a new random fetched only at its end.
+  Repeat-one works in random mode.
+- The extras row fits the pane width: buttons stay at their historical maximum
+  and shrink together when space is tight.
 - Media keys and the system playback overlay control Stereo and show the
   current track.
 - Scrobbles plays back to your server so play counts stay accurate.
@@ -61,7 +68,8 @@ your notes.
 **Queue & stations**
 - Full-page queue with playback modes, save-as-playlist, and persistence across
   Obsidian restarts.
-- Repeat control beside shuffle cycles through off, queue, and track. The choice
+- Repeat and shuffle also live on the player. Repeat cycles through off, queue,
+  and track; shuffle keeps the mode and restores the previous order. The choice
   survives restarts; Next skips ahead even with repeat track. Live radio does not repeat.
 - Drag tracks to reorder, or right-click a queue entry to move it next without
   interrupting playback. Duplicate entries can be moved independently.
@@ -82,8 +90,9 @@ your notes.
 3. Use **Retest** to confirm the server is reachable, then open the player from
    the ribbon icon or the **Open player** command.
 
-Settings also cover track click behavior, sharing, Now Playing view, lyrics font,
-and search tuning.
+Settings also cover player buttons (random, repeat, shuffle, favorite, station,
+share, volume, and whether repeat/shuffle sit in the transport row), track click
+behavior, sharing, Now Playing view, lyrics font, and search tuning.
 
 ## Requirements
 

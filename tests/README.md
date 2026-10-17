@@ -20,6 +20,14 @@ handling. A radio entry that ends advances to the entry after it (wrapping under
 repeat queue), but never restarts itself through repeat track, a wrap or
 duplicate entry carrying the same stream URL, or an error.
 
+Random and shuffle coverage checks the two-state shuffle and its original-order
+restore after manual reorders (but not after entries change), shuffle applied to
+replaced queues, keeping a loaded track past three seconds when random starts,
+replacing a just-started track, walking the generated random queue with Previous
+and Next, appending only at its end during manual and natural progression,
+repeat-one inside random, pending-fetch cancellation, fetch failures, explicit
+playback turning random off, and safe snapshot restoration.
+
 Live verification for issue #1 (2026-09-05, Obsidian with Navidrome):
 
 - DOM drag moved a duplicate across the current occurrence without reloading

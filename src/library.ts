@@ -609,6 +609,7 @@ export class LibraryPane extends Component {
 		if (!result) return;
 		const { artists, albums, songs } = result;
 		this.plugin.favorites.learnSongs(songs);
+		this.plugin.ratings.learnSongs(songs);
 
 		if (artists.length === 0 && albums.length === 0 && songs.length === 0) {
 			this.emptyStatus(
@@ -815,13 +816,16 @@ export class LibraryPane extends Component {
 		return button;
 	}
 
-	/** Row-level favorite toggle backed by the shared session index. */
+	/** Row-level favorite + rating control backed by the shared session indices. */
 	private songHeart(parent: HTMLElement, song: Song): void {
 		createSongHeart(
 			parent,
 			song,
 			this.plugin.favorites,
-			(target) => this.plugin.toggleSongFavorite(target)
+			this.plugin.ratings,
+			(target) => this.plugin.toggleSongFavorite(target),
+			(target, rating) => this.plugin.toggleSongRating(target, rating),
+			this.plugin.settings.showRating
 		);
 	}
 

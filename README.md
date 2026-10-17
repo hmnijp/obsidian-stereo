@@ -49,6 +49,10 @@ your notes.
   Track rows in albums, playlists, search, history, and the queue have their own
   heart: filled favorites stay visible, outline controls appear on hover, and
   every open list and both players update together.
+- Navidrome star ratings: the current rating printed on each track's heart in
+  song lists (hover the heart for five stars), rating and favorite icons at the
+  corners of the album-art box, and a star button in the extras row with an
+  upward picker. Rating and favorite cover overlays are controlled in settings.
 - Share links for tracks, albums, playlists, artists, and the current queue.
   Links use original files; choose a lifetime and optional downloads, then copy
   the public URL. Right-click the player's share button to share the current
@@ -94,8 +98,9 @@ your notes.
    the ribbon icon or the **Open player** command.
 
 Settings also cover player buttons (random, repeat, shuffle, favorite, station,
-share, volume, and whether repeat/shuffle sit in the transport row), track click
-behavior, sharing, Now Playing view, lyrics font, and search tuning.
+share, volume, and whether repeat/shuffle sit in the transport row), star
+ratings and cover overlays, track click behavior, sharing, Now Playing view,
+lyrics font, and search tuning.
 
 ## Requirements
 
@@ -122,7 +127,7 @@ behavior, sharing, Now Playing view, lyrics font, and search tuning.
   Links are stored on your server, not in the plugin. Each server can define a
   share base URL; without one, links use its WAN URL.
 - Recently played stores track IDs, display metadata (title, artist, album,
-  artwork ID, genre, duration, and favorite status), and play timestamps locally
+  artwork ID, genre, duration, favorite status, and star rating), and play timestamps locally
   in the same `data.json`, limited to 200 entries for the configured
   server/account. History records actual song starts, including replays and
   repeats, and excludes radio. It contains no passwords or authenticated

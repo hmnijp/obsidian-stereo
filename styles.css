@@ -295,6 +295,7 @@
 /* Album art */
 
 .stereo-art-wrap {
+	position: relative;
 	display: flex;
 	/* Grow into all the leftover vertical space and center the (square) art in
 	   it, so surplus height splits above and below the art instead of dumping
@@ -477,6 +478,151 @@
 
 .stereo-art-wrap-viz .stereo-viz {
 	display: block;
+}
+
+/* The stage gives the cover and every visualizer one shared square, so the
+   rating/favorite overlays can sit in its corners in all presentation modes. */
+.stereo-art-stage {
+	position: relative;
+	width: min(92%, var(--stereo-art-size, 340px));
+	aspect-ratio: 1;
+}
+
+.stereo-art-stage > .stereo-art,
+.stereo-art-stage > .stereo-art-placeholder,
+.stereo-art-stage > .stereo-viz {
+	width: 100%;
+	height: 100%;
+	aspect-ratio: auto;
+}
+
+.stereo-art-stage > .stereo-art {
+	display: block;
+}
+
+/* The viz-mode hide rule sits before the stage block rule above, so repeat it
+   with the stage in the selector to keep the cover hidden. */
+.stereo-art-wrap-viz .stereo-art-stage > .stereo-art {
+	display: none;
+}
+
+.stereo-art-overlays {
+	position: absolute;
+	inset: 0;
+	z-index: 5;
+	pointer-events: none;
+}
+
+.stereo-art-rating {
+	position: absolute;
+	left: 8px;
+	bottom: 8px;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	pointer-events: auto;
+}
+
+.stereo-button.stereo-art-rating-main {
+	position: relative;
+	width: 34px;
+	height: 34px;
+	flex-shrink: 0;
+}
+
+.stereo-button.stereo-art-rating-main svg {
+	width: 26px;
+	height: 26px;
+}
+
+.stereo-art-rating-stars {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 3px 5px;
+	border-radius: 999px;
+	opacity: 0;
+	pointer-events: none;
+	transform: translateX(-4px);
+	transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.stereo-art-rating:hover .stereo-art-rating-stars,
+.stereo-art-rating:focus-within .stereo-art-rating-stars {
+	opacity: 1;
+	pointer-events: auto;
+	transform: none;
+}
+
+.stereo-art-rating-stars .stereo-rating-star {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	opacity: 0.85;
+}
+
+.stereo-art-rating-stars .stereo-rating-star:hover {
+	opacity: 1;
+}
+
+.stereo-art-rating-stars .stereo-rating-star svg {
+	width: 18px;
+	height: 18px;
+}
+
+.stereo-button.stereo-art-favorite {
+	position: absolute;
+	right: 8px;
+	bottom: 8px;
+	width: 34px;
+	height: 34px;
+	pointer-events: auto;
+}
+
+.stereo-button.stereo-art-favorite svg {
+	width: 22px;
+	height: 22px;
+}
+
+/* The five-star picker keeps a translucent pill; the collapsed star/heart are
+   bare icons sitting on the corners of the art box. */
+.stereo-art-rating-stars {
+	background: var(--background-secondary);
+	background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
+	border: 1px solid var(--background-modifier-border);
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
+	box-shadow: var(--shadow-s);
+	backdrop-filter: blur(8px);
+}
+
+.stereo-button.stereo-art-rating-main,
+.stereo-button.stereo-art-favorite {
+	padding: 0;
+	color: var(--text-muted);
+	background: transparent;
+	border: none;
+	box-shadow: none;
+}
+
+.stereo-button.stereo-art-rating-main:hover,
+.stereo-button.stereo-art-favorite:hover {
+	background: transparent;
+}
+
+.stereo-button.stereo-art-rating-main:hover:not(.stereo-button-active),
+.stereo-button.stereo-art-favorite:hover:not(.stereo-button-active) {
+	color: var(--text-normal);
+}
+
+.stereo-button.stereo-art-favorite.stereo-button-active {
+	color: var(--interactive-accent);
+}
+
+.stereo-art-rating-stars .stereo-rating-star {
+	background: transparent;
+	border: none;
+	box-shadow: none;
+	backdrop-filter: none;
 }
 
 /* Track info — the three lines sit in one tight block (title / artist /
@@ -777,7 +923,8 @@
 /* Every control keeps the historical maximum button size when the row is
    roomy, and shrinks together when the pane is narrow. */
 .stereo-extras-row > .stereo-button,
-.stereo-extras-row > .stereo-volume-control {
+.stereo-extras-row > .stereo-volume-control,
+.stereo-extras-row > .stereo-rating-control {
 	flex: 1 1 0;
 	min-width: 16px;
 	max-width: 32px;
@@ -816,12 +963,20 @@
 	fill: currentColor;
 }
 
-/* Per-row favorite control. Inactive hearts stay quiet until the row is
-   hovered or the button receives keyboard focus; active hearts stay visible. */
-.stereo-button.stereo-song-heart {
+/* Per-row favorite + rating control. A plain heart click toggles favorite;
+   the rating number lives on the heart and the five-star picker opens on
+   hover/focus. Inactive unrated hearts stay quiet until the row is hovered. */
+.stereo-heart-rating {
+	position: relative;
+	display: flex;
 	flex-shrink: 0;
-	width: 20px;
-	height: 20px;
+}
+
+.stereo-button.stereo-song-heart {
+	position: relative;
+	flex-shrink: 0;
+	width: 28px;
+	height: 28px;
 	padding: 2px;
 	color: var(--text-faint);
 	opacity: 0;
@@ -830,13 +985,35 @@
 }
 
 .stereo-button.stereo-song-heart svg {
-	width: 16px;
-	height: 16px;
+	width: 20px;
+	height: 20px;
+}
+
+.stereo-favorite-value {
+	position: absolute;
+	inset: 0;
+	display: none;
+	align-items: center;
+	justify-content: center;
+	font-size: 9px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	color: var(--interactive-accent);
+	pointer-events: none;
+}
+
+.stereo-ratings-enabled .stereo-favorite-value {
+	display: flex;
+}
+
+.stereo-song-heart.stereo-button-active .stereo-favorite-value {
+	color: var(--text-on-accent, var(--background-primary));
 }
 
 .stereo-list-row:hover .stereo-song-heart,
 .stereo-queue-row:hover .stereo-song-heart,
-.stereo-song-heart:focus-visible {
+.stereo-song-heart:focus-visible,
+.stereo-ratings-enabled .stereo-heart-rating.stereo-has-rating .stereo-song-heart {
 	opacity: 1;
 	pointer-events: auto;
 }
@@ -853,6 +1030,152 @@
 
 .stereo-song-heart.stereo-button-active:hover {
 	color: var(--interactive-accent);
+}
+
+/* Five-star picker floating left over the row name. */
+.stereo-heart-rating-picker {
+	display: none;
+	position: absolute;
+	right: calc(100% + 4px);
+	top: 50%;
+	transform: translateY(-50%);
+	z-index: 30;
+	align-items: center;
+	gap: 2px;
+	padding: 4px 5px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+	white-space: nowrap;
+}
+
+.stereo-ratings-enabled .stereo-heart-rating.stereo-heart-rating-open .stereo-heart-rating-picker {
+	display: flex;
+}
+
+.stereo-mini-heart-rating.stereo-heart-rating-open .stereo-mini-rating-picker {
+	display: flex;
+}
+
+.stereo-heart-rating-picker .stereo-rating-star {
+	width: 22px;
+	height: 22px;
+}
+
+.stereo-heart-rating-picker .stereo-rating-star svg {
+	width: 18px;
+	height: 18px;
+}
+
+/* Star ratings. The summary star carries the current value; five-star rows are
+   used in lists, the cover overlay and the extras popup. */
+.stereo-rating-summary {
+	position: relative;
+	color: var(--text-muted);
+}
+
+.stereo-rating-summary svg {
+	fill: transparent;
+	transition: fill 120ms ease;
+}
+
+.stereo-rating-summary.stereo-button-active {
+	color: var(--interactive-accent);
+}
+
+.stereo-rating-summary.stereo-rating-empty {
+	color: var(--text-muted);
+}
+
+.stereo-rating-summary:disabled {
+	color: var(--text-faint);
+}
+
+.stereo-rating-value {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 10px;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+}
+
+.stereo-rating-star {
+	padding: 0;
+	color: var(--text-faint);
+}
+
+.stereo-rating-star svg {
+	fill: transparent;
+	transition: fill 120ms ease;
+}
+
+.stereo-rating-star.stereo-rating-star-filled {
+	color: var(--interactive-accent);
+}
+
+.stereo-rating-star.stereo-rating-star-filled svg,
+.stereo-rating-star.stereo-rating-star-filled svg path {
+	fill: currentColor;
+}
+
+/* Hover preview: the stars up to the pointer are filled dimly. */
+.stereo-rating-star.stereo-rating-star-preview {
+	opacity: 0.45;
+}
+
+/* Extras-row rating control and its upward picker. */
+.stereo-rating-control {
+	position: relative;
+	display: flex;
+}
+
+.stereo-rating-control > .stereo-rating-summary {
+	width: 100%;
+	height: 100%;
+	padding: 0;
+}
+
+.stereo-rating-control .stereo-rating-summary svg {
+	width: 75%;
+	height: 75%;
+	min-width: 14px;
+	min-height: 14px;
+	max-width: 24px;
+	max-height: 24px;
+}
+
+.stereo-rating-control .stereo-rating-value {
+	font-size: 9px;
+}
+
+.stereo-rating-popup {
+	position: absolute;
+	right: 0;
+	bottom: calc(100% + var(--size-2-2));
+	z-index: 20;
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	padding: 6px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	box-shadow: var(--shadow-s);
+}
+
+.stereo-rating-popup .stereo-rating-star {
+	width: 26px;
+	height: 26px;
+}
+
+.stereo-rating-popup .stereo-rating-star svg {
+	width: 20px;
+	height: 20px;
 }
 
 
@@ -1399,9 +1722,17 @@
 	height: 12px;
 }
 
+.stereo-mini-heart {
+	position: relative;
+}
+
 .stereo-mini-top .stereo-mini-heart svg {
-	width: 12px;
-	height: 12px;
+	width: 24px;
+	height: 24px;
+}
+
+.stereo-mini-heart-rating .stereo-favorite-value {
+	display: flex;
 }
 
 .stereo-mini-time {

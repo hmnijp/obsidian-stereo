@@ -40,6 +40,8 @@ export interface Song {
 	duration?: number;
 	contentType?: string;
 	starred?: string;
+	/** Per-user star rating from OpenSubsonic/Navidrome, 1–5. */
+	userRating?: number;
 	/**
 	 * Direct playback URL. Set only for internet radio entries; regular tracks
 	 * stream via `streamUrl(id)`.
@@ -492,6 +494,11 @@ export class SubsonicClient {
 	/** Remove a song, album, or artist from favorites. */
 	async unstar(target: StarTarget): Promise<void> {
 		await this.request("unstar", starParams(target));
+	}
+
+	/** Set a song's 1–5 star rating, or clear it with 0. */
+	async setRating(id: string, rating: number): Promise<void> {
+		await this.request("setRating", { id, rating });
 	}
 
 	/** Create a playlist from an ordered list of song ids. */

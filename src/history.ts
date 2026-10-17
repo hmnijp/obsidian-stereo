@@ -55,6 +55,14 @@ function metadata(raw: unknown): Song | null {
 		if (typeof field === "string" && (key !== "coverArt" || !/[:/?#]/.test(field))) song[key] = field;
 	}
 	if (typeof value.duration === "number" && Number.isFinite(value.duration) && value.duration >= 0) song.duration = value.duration;
+	if (
+		typeof value.userRating === "number" &&
+		Number.isInteger(value.userRating) &&
+		value.userRating >= 1 &&
+		value.userRating <= 5
+	) {
+		song.userRating = value.userRating;
+	}
 	return song;
 }
 

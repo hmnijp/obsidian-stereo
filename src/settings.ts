@@ -119,6 +119,12 @@ export interface StereoSettings {
 	showShareButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
+	/** Show 1–5 star ratings in track lists. */
+	showRating: boolean;
+	/** Show rating and favorite controls in the album-art corners. */
+	showArtOverlays: boolean;
+	/** Show the rating star button in the extras row. */
+	showRatingButton: boolean;
 	/** Show copy actions in contextual menus. */
 	contextualCopyButtons: boolean;
 	/** Show share actions and the share-link manager. */
@@ -159,6 +165,9 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showStationButton: true,
 	showShareButton: true,
 	repeatShuffleInTransport: false,
+	showRating: false,
+	showArtOverlays: true,
+	showRatingButton: true,
 	contextualCopyButtons: true,
 	sharingEnabled: true,
 	shareDefaultTtl: "7d",
@@ -281,6 +290,9 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showStationButton",
 	"showShareButton",
 	"repeatShuffleInTransport",
+	"showRating",
+	"showArtOverlays",
+	"showRatingButton",
 ]);
 
 export class StereoSettingTab extends PluginSettingTab {
@@ -422,8 +434,13 @@ export class StereoSettingTab extends PluginSettingTab {
 					},
 					{
 						name: "Favorite button",
-						desc: "Show the heart button for the current track.",
+						desc: "Show the heart button in the extras row for the current track.",
 						control: { type: "toggle", key: "showFavoriteButton" },
+					},
+					{
+						name: "Rating button",
+						desc: "Show the star rating button in the extras row, next to the favorite heart.",
+						control: { type: "toggle", key: "showRatingButton" },
 					},
 					{
 						name: "Station button",
@@ -439,6 +456,22 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Repeat and shuffle in transport row",
 						desc: "Place repeat to the left of Previous and shuffle to the right of Next, using the transport button size. When off, both stay in the extras row.",
 						control: { type: "toggle", key: "repeatShuffleInTransport" },
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Ratings",
+				items: [
+					{
+						name: "Star ratings in lists",
+						desc: "Show the current rating on each track's heart. Hover the heart to pick 1–5; clicking it only toggles favorite.",
+						control: { type: "toggle", key: "showRating" },
+					},
+					{
+						name: "Cover overlays",
+						desc: "Show rating and favorite icons at the bottom corners of the album-art box. Works with every cover and visualizer mode.",
+						control: { type: "toggle", key: "showArtOverlays" },
 					},
 				],
 			},

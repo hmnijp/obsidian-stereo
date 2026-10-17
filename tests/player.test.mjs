@@ -205,12 +205,24 @@ test("history entries receive favorite updates without duplicates", (t) => {
 	store.history.record(b, connection);
 	const value = "2026-10-18T00:00:00Z";
 	store.history.updateSong(a.id, { starred: value });
+	store.history.updateSong(a.id, { userRating: 4 });
 	const entries = store.history.getEntries();
 	assert.equal(entries.length, 2);
 	assert.equal(entries.find((entry) => entry.song.id === a.id)?.song.starred, value);
+	assert.equal(entries.find((entry) => entry.song.id === a.id)?.song.userRating, 4);
 	assert.equal(entries.find((entry) => entry.song.id === b.id)?.song.starred, undefined);
 	store.history.updateSong("missing", { starred: value });
 	assert.equal(store.history.getEntries().length, 2);
+});
+
+test("history retains only valid user ratings", (t) => {
+	const { store } = setup(t);
+	const connection = store.history.getConnection();
+	store.history.record({ ...a, userRating: 4 }, connection);
+	store.history.record({ ...b, userRating: 9 }, connection);
+	const entries = store.history.getEntries();
+	assert.equal(entries[0]?.song.userRating, undefined);
+	assert.equal(entries[1]?.song.userRating, 4);
 });
 
 test("connection changes clear history and old queue IDs; passwords and appearance retain history", async (t) => {

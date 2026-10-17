@@ -274,6 +274,15 @@ function respondWith(sharePayload, status = 200) {
 	};
 }
 
+test("setRating sends the song id and star value", async () => {
+	respondWith(null);
+	await client.setRating("song-1", 4);
+	const url = new URL(globalThis.__lastRequest.url);
+	assert.equal(url.pathname, "/rest/setRating.view");
+	assert.equal(url.searchParams.get("id"), "song-1");
+	assert.equal(url.searchParams.get("rating"), "4");
+});
+
 test("createShare sends one id with GET and includes expiry and downloads", async () => {
 	const expiresAt = new Date("2030-01-02T03:04:05.000Z");
 	respondWith([

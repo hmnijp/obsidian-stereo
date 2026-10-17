@@ -190,7 +190,10 @@ export class SearchPane {
 			row,
 			song,
 			this.plugin.favorites,
-			(target) => this.plugin.toggleSongFavorite(target)
+			this.plugin.ratings,
+			(target) => this.plugin.toggleSongFavorite(target),
+			(target, rating) => this.plugin.toggleSongRating(target, rating),
+			this.plugin.settings.showRating
 		);
 		if (song.duration) {
 			row.createSpan({

@@ -10,7 +10,16 @@ import radioTowerSvg from "../radio-tower.svg";
 import boomboxSvg from "../boombox.svg";
 import stereoBoomboxSvg from "../stereo-boombox.svg";
 import { getLyrics, type Lyrics } from "./lyrics";
-import { createSongHeart, syncSongHeart } from "./favorite-button";
+import { createSongHeart, syncSongHeart, attachHeartRatingHover } from "./favorite-button";
+import {
+	clearStarPreview,
+	createRatingSummary,
+	createStarButtons,
+	setStarsDisabled,
+	syncRatingSummary,
+	syncStarButtons,
+	type RatingSummary,
+} from "./rating-button";
 import { LibraryPane } from "./library";
 import { PlaylistNameModal, PlaylistSharePickerModal } from "./modals";
 import { SearchPane } from "./search";
@@ -108,6 +117,12 @@ export class StereoView extends ItemView {
 
 	// Now Playing elements
 	private artWrap!: HTMLElement;
+	private artStage!: HTMLElement;
+	private artOverlays!: HTMLElement;
+	private artRatingEl!: HTMLElement;
+	private artRatingSummary!: RatingSummary;
+	private artRatingStars: HTMLButtonElement[] = [];
+	private artFavoriteButton!: HTMLButtonElement;
 	private artImg!: HTMLImageElement;
 	private artPlaceholder!: HTMLElement;
 	private viz!: Visualizer;
@@ -127,6 +142,12 @@ export class StereoView extends ItemView {
 	private playButton!: HTMLButtonElement;
 	private nextButton!: HTMLButtonElement;
 	private extrasRow!: HTMLElement;
+	private extrasRatingControl!: HTMLElement;
+	private extrasRatingSummary!: RatingSummary;
+	private extrasRatingPopup!: HTMLElement;
+	private extrasRatingStars: HTMLButtonElement[] = [];
+	private extrasRatingDismiss: (() => void) | null = null;
+	private ratingPending = false;
 	private volumeControlEl: HTMLElement | null = null;
 	private volumeButton: HTMLButtonElement | null = null;
 	private volumePopup: HTMLElement | null = null;
@@ -190,6 +211,10 @@ export class StereoView extends ItemView {
 	private miniPlayButton!: HTMLButtonElement;
 	private miniNextButton!: HTMLButtonElement;
 	private miniFavoriteButton!: HTMLButtonElement;
+	private miniHeartContainer!: HTMLElement;
+	private miniRatingPicker!: HTMLElement;
+	private miniRatingStars: HTMLButtonElement[] = [];
+	private miniRatingTrackId: string | null = null;
 
 	// Library & search
 	private library!: LibraryPane;
@@ -319,6 +344,12 @@ export class StereoView extends ItemView {
 				this.render(this.plugin.player.getState());
 			})
 		);
+		this.register(
+			this.plugin.ratings.subscribe(() => {
+				this.syncSongHearts();
+				this.render(this.plugin.player.getState());
+			})
+		);
 		this.unsubscribe = this.plugin.player.subscribe((state) => {
 			this.render(state);
 		});
@@ -327,6 +358,7 @@ export class StereoView extends ItemView {
 	async onClose(): Promise<void> {
 		this.clearVolumeHideTimer();
 		this.unregisterVolumeDismissListeners();
+		this.closeExtrasRatingPopup();
 		this.removeChild(this.library);
 		this.viz.stop();
 		this.statusBarObserver?.disconnect();
@@ -564,6 +596,11 @@ export class StereoView extends ItemView {
 		this.applyLyricsStyle();
 		this.syncVolumeControl();
 		this.syncExtrasUi();
+		this.contentEl.toggleClass(
+			"stereo-ratings-enabled",
+			this.plugin.settings.showRating
+		);
+		this.syncSongHearts();
 		const state = this.plugin.player.getState();
 		this.setEffectiveView(this.effectiveNowPlayingView(state.track));
 		this.render(state);
@@ -593,6 +630,10 @@ export class StereoView extends ItemView {
 		this.randomButton?.toggleClass("stereo-hidden", !settings.showRandomButton);
 		this.stationButton?.toggleClass("stereo-hidden", !settings.showStationButton);
 		this.favoriteButton?.toggleClass("stereo-hidden", !settings.showFavoriteButton);
+		this.extrasRatingControl?.toggleClass(
+			"stereo-hidden",
+			!settings.showRatingButton
+		);
 		this.trackShareButton?.toggleClass("stereo-hidden", !this.shareButtonVisible());
 	}
 
@@ -880,17 +921,18 @@ export class StereoView extends ItemView {
 	private buildNowPlaying(page: HTMLElement): void {
 		// Album art / visualizer area (which one shows is a setting)
 		this.artWrap = page.createDiv({ cls: "stereo-art-wrap" });
-		this.artImg = this.artWrap.createEl("img", {
+		this.artStage = this.artWrap.createDiv({ cls: "stereo-art-stage" });
+		this.artImg = this.artStage.createEl("img", {
 			cls: "stereo-art",
 			attr: { alt: "Album cover" },
 		});
-		this.artPlaceholder = this.artWrap.createDiv({ cls: "stereo-art-placeholder" });
+		this.artPlaceholder = this.artStage.createDiv({ cls: "stereo-art-placeholder" });
 		setIcon(this.artPlaceholder, "music");
 		this.registerDomEvent(this.artImg, "error", () => {
 			this.artImg.addClass("stereo-hidden");
 			this.artPlaceholder.removeClass("stereo-hidden");
 		});
-		const vizCanvas = this.artWrap.createEl("canvas", { cls: "stereo-viz" });
+		const vizCanvas = this.artStage.createEl("canvas", { cls: "stereo-viz" });
 		this.viz = new Visualizer(
 			vizCanvas,
 			() => this.plugin.player.getAnalyser(),
@@ -908,6 +950,29 @@ export class StereoView extends ItemView {
 		this.viz.setTowerImage(svgDataUri(radioTowerSvg));
 		this.viz.setBoomboxImage(svgDataUri(boomboxSvg));
 		this.viz.setStereoImage(svgDataUri(stereoBoomboxSvg));
+
+		// Cover overlays sit in the corners of the art box (not on the artwork),
+		// above the art and every visualizer mode. The rating star expands to the
+		// right; the favorite heart stays in the right corner.
+		this.artOverlays = this.artWrap.createDiv({ cls: "stereo-art-overlays" });
+		this.artRatingEl = this.artOverlays.createDiv({ cls: "stereo-art-rating" });
+		this.artRatingSummary = createRatingSummary(
+			this.artRatingEl,
+			"stereo-art-rating-main"
+		);
+		this.artRatingStars = createStarButtons(
+			this.artRatingEl.createDiv({ cls: "stereo-art-rating-stars" }),
+			(rating) => this.setCurrentRating(rating)
+		);
+		this.artFavoriteButton = this.artOverlays.createEl("button", {
+			cls: "stereo-button clickable-icon stereo-art-favorite stereo-heart-button",
+			attr: { "aria-label": "Add to favorites" },
+		});
+		setIcon(this.artFavoriteButton, "heart");
+		this.registerDomEvent(this.artFavoriteButton, "click", (event) => {
+			event.stopPropagation();
+			this.toggleCurrentFavorite();
+		});
 
 		// Lyrics panel: swaps in for the art area, sized by the same variable.
 		this.lyricsWrap = page.createDiv({ cls: "stereo-lyrics-wrap stereo-hidden" });
@@ -1108,6 +1173,34 @@ export class StereoView extends ItemView {
 		this.registerDomEvent(this.trackShareButton, "contextmenu", (event) => {
 			this.showTrackShareMenu(event);
 		});
+
+		// Rating control in the extras row: a star with the current value that
+		// opens an upward picker with five stars.
+		this.extrasRatingControl = extrasRow.createDiv({ cls: "stereo-rating-control" });
+		this.extrasRatingSummary = createRatingSummary(
+			this.extrasRatingControl,
+			"stereo-extras-rating-toggle"
+		);
+		this.extrasRatingSummary.button.setAttribute("aria-haspopup", "true");
+		this.extrasRatingSummary.button.setAttribute("aria-expanded", "false");
+		this.extrasRatingPopup = this.extrasRatingControl.createDiv({
+			cls: "stereo-rating-popup stereo-hidden",
+		});
+		this.extrasRatingStars = createStarButtons(
+			this.extrasRatingPopup,
+			(rating) => {
+				this.setCurrentRating(rating);
+				this.closeExtrasRatingPopup();
+			}
+		);
+		this.registerDomEvent(this.extrasRatingSummary.button, "click", (event) => {
+			event.stopPropagation();
+			this.toggleExtrasRatingPopup();
+		});
+		this.registerDomEvent(this.extrasRatingPopup, "click", (event) => {
+			event.stopPropagation();
+		});
+
 		this.favoriteButton = this.iconButton(extrasRow, "heart", "Add to favorites", () => {
 			const track = this.plugin.player.getState().track;
 			if (!track || track.streamUrl) return;
@@ -1649,10 +1742,13 @@ export class StereoView extends ItemView {
 			this.library.openAlbum(track.albumId, track.album ?? "");
 		});
 
-		// Like sits on the right edge of the top row, sized like the mini
-		// transport skips.
+		// Like sits on the right edge of the top row. Its rating number and the
+		// five-star picker mirror the song-row heart.
+		this.miniHeartContainer = top.createDiv({
+			cls: "stereo-heart-rating stereo-mini-heart-rating",
+		});
 		this.miniFavoriteButton = this.iconButton(
-			top,
+			this.miniHeartContainer,
 			"heart",
 			"Add to favorites",
 			() => {
@@ -1665,6 +1761,19 @@ export class StereoView extends ItemView {
 		);
 		this.miniFavoriteButton.addClass("stereo-mini-heart");
 		this.miniFavoriteButton.addClass("stereo-heart-button");
+		this.miniFavoriteButton.setAttribute("aria-haspopup", "true");
+		this.miniFavoriteButton.createSpan({ cls: "stereo-favorite-value" });
+		this.miniRatingPicker = this.miniHeartContainer.createDiv({
+			cls: "stereo-heart-rating-picker stereo-mini-rating-picker",
+		});
+		this.miniRatingStars = createStarButtons(this.miniRatingPicker, (rating) => {
+			this.setCurrentRating(rating);
+		});
+		attachHeartRatingHover(
+			this.miniHeartContainer,
+			this.miniFavoriteButton,
+			this.miniRatingPicker
+		);
 
 		// Bottom row: elapsed · seek · transport.
 		const bottom = this.miniEl.createDiv({ cls: "stereo-mini-bottom" });
@@ -1779,13 +1888,16 @@ export class StereoView extends ItemView {
 		return button;
 	}
 
-	/** Row-level favorite toggle backed by the shared session index. */
+	/** Row-level favorite + rating control backed by the shared indices. */
 	private songHeart(parent: HTMLElement, song: Song): void {
 		createSongHeart(
 			parent,
 			song,
 			this.plugin.favorites,
-			(target) => this.plugin.toggleSongFavorite(target)
+			this.plugin.ratings,
+			(target) => this.plugin.toggleSongFavorite(target),
+			(target, rating) => this.plugin.toggleSongRating(target, rating),
+			this.plugin.settings.showRating
 		);
 	}
 
@@ -1793,7 +1905,82 @@ export class StereoView extends ItemView {
 	private syncSongHearts(): void {
 		this.contentEl
 			.querySelectorAll<HTMLButtonElement>(".stereo-song-heart")
-			.forEach((button) => syncSongHeart(button, this.plugin.favorites));
+			.forEach((button) =>
+				syncSongHeart(
+					button,
+					this.plugin.favorites,
+					this.plugin.ratings,
+					this.plugin.settings.showRating
+				)
+			);
+	}
+
+	/** Apply a rating picked in the cover overlay or extras popup. */
+	private setCurrentRating(rating: number): void {
+		const track = this.plugin.player.getState().track;
+		if (!track || track.streamUrl || this.ratingPending) return;
+		this.ratingPending = true;
+		setStarsDisabled(this.artRatingStars, true);
+		setStarsDisabled(this.extrasRatingStars, true);
+		setStarsDisabled(this.miniRatingStars, true);
+		void this.plugin
+			.toggleSongRating(track, rating)
+			.catch(() => {
+				new Notice("Could not update the rating on the server.");
+			})
+			.finally(() => {
+				this.ratingPending = false;
+				setStarsDisabled(this.artRatingStars, false);
+				setStarsDisabled(this.extrasRatingStars, false);
+				setStarsDisabled(this.miniRatingStars, false);
+				this.render(this.plugin.player.getState());
+			});
+	}
+
+	private toggleCurrentFavorite(): void {
+		const track = this.plugin.player.getState().track;
+		if (!track || track.streamUrl) return;
+		this.plugin.toggleSongFavorite(track).catch(() => {
+			new Notice("Could not update favorites on the server.");
+		});
+	}
+
+	private toggleExtrasRatingPopup(): void {
+		if (this.extrasRatingSummary.button.disabled) return;
+		if (this.extrasRatingPopup.hasClass("stereo-hidden")) {
+			this.openExtrasRatingPopup();
+		} else {
+			this.closeExtrasRatingPopup();
+		}
+	}
+
+	private openExtrasRatingPopup(): void {
+		this.extrasRatingPopup.removeClass("stereo-hidden");
+		this.extrasRatingSummary.button.setAttribute("aria-expanded", "true");
+		if (this.extrasRatingDismiss) return;
+		const doc = this.containerEl.ownerDocument;
+		const onPointerDown = (event: PointerEvent): void => {
+			const target = event.target as Node | null;
+			if (target && this.extrasRatingControl.contains(target)) return;
+			this.closeExtrasRatingPopup();
+		};
+		const onKeyDown = (event: KeyboardEvent): void => {
+			if (event.key === "Escape") this.closeExtrasRatingPopup();
+		};
+		doc.addEventListener("pointerdown", onPointerDown);
+		doc.addEventListener("keydown", onKeyDown);
+		this.extrasRatingDismiss = () => {
+			doc.removeEventListener("pointerdown", onPointerDown);
+			doc.removeEventListener("keydown", onKeyDown);
+		};
+	}
+
+	private closeExtrasRatingPopup(): void {
+		this.extrasRatingPopup?.addClass("stereo-hidden");
+		this.extrasRatingSummary?.button.setAttribute("aria-expanded", "false");
+		clearStarPreview(this.extrasRatingStars);
+		this.extrasRatingDismiss?.();
+		this.extrasRatingDismiss = null;
 	}
 
 	// --- rendering ---
@@ -1818,6 +2005,59 @@ export class StereoView extends ItemView {
 		const currentStarred = state.track
 			? this.plugin.favorites.isStarred(state.track)
 			: false;
+		const radio = !!state.track?.streamUrl;
+		const hasTrack = !!state.track;
+		const currentRating =
+			hasTrack && !radio ? this.plugin.ratings.rating(state.track as Song) : 0;
+
+		// Cover overlays: both controls share one setting, independent of extras.
+		this.artOverlays.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.showArtOverlays || !hasTrack
+		);
+		const ratingDisabled = !hasTrack || radio || this.ratingPending;
+		const hideArtRating =
+			!this.plugin.settings.showArtOverlays || !hasTrack || radio;
+		this.artRatingEl.toggleClass("stereo-hidden", hideArtRating);
+		if (hideArtRating) clearStarPreview(this.artRatingStars);
+		syncRatingSummary(this.artRatingSummary, currentRating);
+		this.artRatingSummary.button.setAttribute(
+			"title",
+			currentRating > 0
+				? `Rating: ${currentRating} of 5. Hover to change`
+				: "Not rated. Hover to rate"
+		);
+		syncStarButtons(this.artRatingStars, currentRating, ratingDisabled);
+		this.artFavoriteButton.disabled = !hasTrack || radio;
+		this.artFavoriteButton.toggleClass("stereo-button-active", currentStarred);
+		this.artFavoriteButton.setAttribute(
+			"aria-label",
+			currentStarred ? "Remove from favorites" : "Add to favorites"
+		);
+
+		// Extras rating button and its upward picker.
+		this.extrasRatingControl.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.showRatingButton
+		);
+		syncRatingSummary(this.extrasRatingSummary, currentRating);
+		this.extrasRatingSummary.button.setAttribute(
+			"aria-label",
+			currentRating > 0
+				? `Rating: ${currentRating} of 5. Change rating`
+				: "Choose rating"
+		);
+		this.extrasRatingSummary.button.setAttribute(
+			"title",
+			currentRating > 0
+				? `Rating: ${currentRating} of 5. Click to change`
+				: "Choose rating"
+		);
+		syncStarButtons(this.extrasRatingStars, currentRating, ratingDisabled);
+		this.extrasRatingSummary.button.disabled = ratingDisabled;
+		if (!this.plugin.settings.showRatingButton || ratingDisabled) {
+			this.closeExtrasRatingPopup();
+		}
 
 		this.titleEl.setText(state.track?.title ?? "Nothing playing");
 		this.artistEl.setText(state.track?.artist ?? "");
@@ -1848,15 +2088,32 @@ export class StereoView extends ItemView {
 		this.miniPlayButton.disabled = !state.track;
 		this.miniPreviousButton.disabled = !state.track;
 		this.miniNextButton.disabled = !this.plugin.player.canNext();
-		this.miniFavoriteButton.disabled = !state.track || !!state.track.streamUrl;
+		const miniTrackId = state.track?.id ?? null;
+		if (miniTrackId !== this.miniRatingTrackId) {
+			this.miniRatingTrackId = miniTrackId;
+			this.miniHeartContainer.removeClass("stereo-heart-rating-open");
+		}
+		this.miniFavoriteButton.disabled = !hasTrack || radio;
 		this.miniFavoriteButton.toggleClass(
 			"stereo-button-active",
 			currentStarred
 		);
-		this.miniFavoriteButton.setAttribute(
-			"aria-label",
-			currentStarred ? "Remove from favorites" : "Add to favorites"
+		const miniFavoriteLabel = currentStarred
+			? "Remove from favorites"
+			: "Add to favorites";
+		const miniRatingLabel =
+			currentRating > 0 ? `Rating: ${currentRating} of 5` : "Not rated";
+		const miniLabel = `${miniFavoriteLabel}. ${miniRatingLabel}. Hover for rating.`;
+		this.miniFavoriteButton.setAttribute("aria-label", miniLabel);
+		this.miniFavoriteButton.setAttribute("title", miniLabel);
+		const miniValue = this.miniFavoriteButton.querySelector<HTMLElement>(
+			".stereo-favorite-value"
 		);
+		miniValue?.setText(currentRating > 0 ? String(currentRating) : "");
+		syncStarButtons(this.miniRatingStars, currentRating, ratingDisabled);
+		if (!hasTrack || radio) {
+			this.miniHeartContainer.removeClass("stereo-heart-rating-open");
+		}
 		this.favoriteButton.disabled = !state.track || !!state.track.streamUrl;
 		this.favoriteButton.toggleClass("stereo-button-active", currentStarred);
 		this.favoriteButton.setAttribute(

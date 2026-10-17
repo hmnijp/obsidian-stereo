@@ -2,6 +2,7 @@ import { Notice, Plugin, WorkspaceLeaf, debounce } from "obsidian";
 import { ConnectionManager } from "./connection";
 import { FavoritesIndex } from "./favorites";
 import { PlayerSnapshot, PlayerStore } from "./player";
+import { RatingsIndex } from "./ratings";
 import { historyConnection, legacyHistoryConnection, type HistorySnapshot } from "./history";
 import {
 	DEFAULT_SETTINGS,
@@ -38,6 +39,10 @@ export default class StereoPlugin extends Plugin {
 		this.client,
 		() => historyConnection(this.settings)
 	);
+	ratings: RatingsIndex = new RatingsIndex(
+		this.client,
+		() => historyConnection(this.settings)
+	);
 
 	private playerState: PlayerSnapshot | undefined;
 	private pendingSave: Promise<void> = Promise.resolve();
@@ -52,6 +57,7 @@ export default class StereoPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadDataFile();
 		this.favorites.syncConnection();
+		this.ratings.syncConnection();
 		this.connection.setProbe((url) => this.client.probe(url));
 		this.connection.start();
 
@@ -95,6 +101,7 @@ export default class StereoPlugin extends Plugin {
 		this.connection.stop();
 		this.player.destroy();
 		this.favorites.destroy();
+		this.ratings.destroy();
 		this.savePlayerState.cancel();
 		void this.saveAll();
 	}
@@ -109,6 +116,15 @@ export default class StereoPlugin extends Plugin {
 		this.player.updateSong(song.id, { starred });
 		this.player.history.updateSong(song.id, { starred });
 		return starred;
+	}
+
+	/** Set or clear a song's 1–5 star rating and mirror it into playback state. */
+	async toggleSongRating(song: Song, rating: number): Promise<number> {
+		const value = await this.ratings.toggleRating(song, rating);
+		const userRating = value > 0 ? value : undefined;
+		this.player.updateSong(song.id, { userRating });
+		this.player.history.updateSong(song.id, { userRating });
+		return value;
 	}
 
 	/**
@@ -157,6 +173,7 @@ export default class StereoPlugin extends Plugin {
 		this.settings.activeServerId = id;
 		this.connection.reset();
 		this.favorites.syncConnection();
+		this.ratings.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 		this.refreshAllViews();
@@ -179,6 +196,7 @@ export default class StereoPlugin extends Plugin {
 		}
 		this.connection.reset();
 		this.favorites.syncConnection();
+		this.ratings.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 		this.refreshAllViews();
@@ -194,6 +212,7 @@ export default class StereoPlugin extends Plugin {
 		}
 		this.connection.reset();
 		this.favorites.syncConnection();
+		this.ratings.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 		this.refreshAllViews();
@@ -298,6 +317,7 @@ export default class StereoPlugin extends Plugin {
 	 */
 	async commitConnection(): Promise<void> {
 		this.favorites.syncConnection();
+		this.ratings.syncConnection();
 		this.player.syncConnection();
 		await this.saveAll();
 	}

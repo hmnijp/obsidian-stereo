@@ -73,6 +73,10 @@ export interface StereoSettings {
 	trackClickAction: TrackClickAction;
 	/** Report plays back to the server so play counts stay accurate. */
 	scrobbleEnabled: boolean;
+	/** Show the volume button and popover; when off, output stays at 100%. */
+	volumeControl: boolean;
+	/** Show copy actions in contextual menus. */
+	contextualCopyButtons: boolean;
 	/** Tracks added per station batch. */
 	stationBatchSize: number;
 	nowPlayingView: NowPlayingView;
@@ -98,6 +102,8 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	password: "",
 	trackClickAction: "play",
 	scrobbleEnabled: true,
+	volumeControl: true,
+	contextualCopyButtons: true,
 	stationBatchSize: 30,
 	nowPlayingView: "record",
 	radioVisualization: "radio",
@@ -141,6 +147,7 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"radioVisualization",
 	"lyricsAutoSize",
 	"lyricsAlign",
+	"volumeControl",
 ]);
 
 export class StereoSettingTab extends PluginSettingTab {
@@ -223,6 +230,11 @@ export class StereoSettingTab extends PluginSettingTab {
 						control: { type: "toggle", key: "scrobbleEnabled" },
 					},
 					{
+						name: "Volume control",
+						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
+						control: { type: "toggle", key: "volumeControl" },
+					},
+					{
 						name: "Station batch size",
 						desc: "Tracks added per station batch, including each More press.",
 						render: (setting) =>
@@ -263,6 +275,11 @@ export class StereoSettingTab extends PluginSettingTab {
 								RADIO_VISUALIZATIONS.map((opt) => [opt.value, opt.label])
 							),
 						},
+					},
+					{
+						name: "Contextual copy buttons",
+						desc: "Show copy actions in right-click menus for track details, lyrics, queue entries, and cover art.",
+						control: { type: "toggle", key: "contextualCopyButtons" },
 					},
 				],
 			},
@@ -364,6 +381,7 @@ export class StereoSettingTab extends PluginSettingTab {
 		if (key === "searchDebounceMs") value = Number(value);
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
 		await this.plugin.saveSettings();
+		if (key === "volumeControl") this.plugin.applyVolumeControlSetting();
 		if (VIEW_REFRESH_KEYS.has(key)) this.plugin.refreshNowPlayingViews();
 		if (key === "lyricsAlign") this.applyLyricsPreview?.();
 	}

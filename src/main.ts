@@ -38,6 +38,7 @@ export default class StereoPlugin extends Plugin {
 			this.savePlayerState();
 		});
 		this.player.history.setPersistence(() => { void this.saveAll(); });
+		this.applyVolumeControlSetting();
 
 		this.registerView(STEREO_VIEW_TYPE, (leaf) => new StereoView(leaf, this));
 		this.addSettingTab(new StereoSettingTab(this.app, this));
@@ -101,6 +102,14 @@ export default class StereoPlugin extends Plugin {
 	refreshNowPlayingViews(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) leaf.view.applyNowPlayingView();
+		}
+	}
+
+	/** When the volume control is disabled, output stays at 100% and only the
+	 * device controls loudness. */
+	applyVolumeControlSetting(): void {
+		if (!this.settings.volumeControl && this.player.getState().volume !== 1) {
+			this.player.setVolume(1);
 		}
 	}
 

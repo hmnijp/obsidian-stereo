@@ -345,6 +345,10 @@
 	line-height: 1.5;
 	padding: 0 var(--size-4-3);
 	text-align: var(--stereo-lyrics-align, left);
+	/* Obsidian disables selection on the workspace chrome; lyrics are text
+	   content and must stay selectable/copyable. */
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 /* Breathing room so the first and last synced lines can still center. */
@@ -360,6 +364,8 @@
 	color: var(--text-muted);
 	white-space: pre-wrap;
 	transition: color 150ms ease;
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .stereo-lyrics-synced .stereo-lyrics-line {

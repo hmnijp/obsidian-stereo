@@ -1,4 +1,11 @@
-import { ItemView, Menu, Notice, WorkspaceLeaf, setIcon } from "obsidian";
+import {
+	ItemView,
+	Menu,
+	Notice,
+	WorkspaceLeaf,
+	requestUrl,
+	setIcon,
+} from "obsidian";
 import radioTowerSvg from "../radio-tower.svg";
 import boomboxSvg from "../boombox.svg";
 import stereoBoomboxSvg from "../stereo-boombox.svg";
@@ -17,6 +24,51 @@ export const STEREO_VIEW_TYPE = "stereo-player";
 /** UTF-8-safe data URI for an inlined SVG (btoa would choke on non-Latin-1). */
 function svgDataUri(svg: string): string {
 	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+	return new Promise((resolve, reject) => {
+		const img = new Image();
+		img.onload = () => resolve(img);
+		img.onerror = () => reject(new Error("Could not load the image."));
+		img.src = src;
+	});
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
+	return new Promise((resolve, reject) => {
+		canvas.toBlob(
+			(blob) =>
+				blob ? resolve(blob) : reject(new Error("Could not encode the image.")),
+			type
+		);
+	});
+}
+
+/** Sniff the common raster formats so the original PNG bytes can be copied
+ * directly even when the server sends a generic content type. */
+function sniffImageType(buffer: ArrayBuffer): string | null {
+	const b = new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength));
+	if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
+		return "image/png";
+	}
+	if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+	if (
+		b[0] === 0x52 &&
+		b[1] === 0x49 &&
+		b[2] === 0x46 &&
+		b[3] === 0x46 &&
+		b[8] === 0x57 &&
+		b[9] === 0x45 &&
+		b[10] === 0x42 &&
+		b[11] === 0x50
+	) {
+		return "image/webp";
+	}
+	if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) {
+		return "image/gif";
+	}
+	return null;
 }
 
 /** Queue is a full page like the others; it also has a tab, and the player's
@@ -68,12 +120,14 @@ export class StereoView extends ItemView {
 	private previousButton!: HTMLButtonElement;
 	private playButton!: HTMLButtonElement;
 	private nextButton!: HTMLButtonElement;
-	private volumeControlEl!: HTMLElement;
-	private volumeButton!: HTMLButtonElement;
-	private volumePopup!: HTMLElement;
-	private volumeSlider!: HTMLInputElement;
+	private extrasRow!: HTMLElement;
+	private volumeControlEl: HTMLElement | null = null;
+	private volumeButton: HTMLButtonElement | null = null;
+	private volumePopup: HTMLElement | null = null;
+	private volumeSlider: HTMLInputElement | null = null;
 	private volumeWheelDelta = 0;
 	private volumeHideTimer: number | null = null;
+	private volumeDismissCleanup: (() => void) | null = null;
 	private shuffleButton!: HTMLButtonElement;
 	private repeatButton!: HTMLButtonElement;
 	private queueButton!: HTMLButtonElement;
@@ -245,6 +299,7 @@ export class StereoView extends ItemView {
 
 	async onClose(): Promise<void> {
 		this.clearVolumeHideTimer();
+		this.unregisterVolumeDismissListeners();
 		this.removeChild(this.library);
 		this.viz.stop();
 		this.statusBarObserver?.disconnect();
@@ -338,7 +393,113 @@ export class StereoView extends ItemView {
 					})
 			);
 		}
+		const coverArt = this.plugin.player.getState().track?.coverArt;
+		if (this.plugin.settings.contextualCopyButtons) {
+			menu.addSeparator();
+			menu.addItem((item) =>
+				item
+					.setTitle("Copy cover")
+					.setIcon("image")
+					.setDisabled(!coverArt)
+					.onClick(() => {
+						if (coverArt) void this.copyCover(coverArt);
+					})
+			);
+		}
 		menu.showAtMouseEvent(evt);
+	}
+
+	/** Copy the track cover to the image clipboard. A PNG original is copied
+	 * byte-for-byte; other formats (usually JPEG) are decoded and re-encoded
+	 * losslessly as PNG, because Chromium's clipboard only accepts PNG. */
+	private async copyCover(coverArt: string): Promise<void> {
+		let objectUrl: string | null = null;
+		try {
+			const response = await requestUrl({
+				url: this.plugin.client.coverArtUrl(coverArt),
+			});
+			const bytes = response.arrayBuffer;
+			const headerType = (response.headers["content-type"] ?? "")
+				.split(";")[0]
+				?.trim()
+				.toLowerCase() ?? "";
+			const type = sniffImageType(bytes) ?? headerType;
+			const canCopyOriginal =
+				type === "image/png" ||
+				(type === "image/jpeg" &&
+					typeof ClipboardItem !== "undefined" &&
+					typeof ClipboardItem.supports === "function" &&
+					ClipboardItem.supports("image/jpeg"));
+			if (canCopyOriginal) {
+				await this.writeClipboardImage(new Blob([bytes], { type }), type);
+				return;
+			}
+
+			const source = new Blob([bytes], {
+				type: type.startsWith("image/") ? type : "image/jpeg",
+			});
+			objectUrl = URL.createObjectURL(source);
+			const img = await loadImageElement(objectUrl);
+			const canvas = document.createElement("canvas");
+			canvas.width = Math.max(1, img.naturalWidth);
+			canvas.height = Math.max(1, img.naturalHeight);
+			const ctx = canvas.getContext("2d");
+			if (!ctx) throw new Error("Could not create a 2D canvas.");
+			ctx.drawImage(img, 0, 0);
+			const png = await canvasToBlob(canvas, "image/png");
+			await this.writeClipboardImage(png, "image/png");
+		} catch {
+			new Notice("Could not copy the cover to the clipboard.");
+		} finally {
+			if (objectUrl) URL.revokeObjectURL(objectUrl);
+		}
+	}
+
+	private async writeClipboardImage(blob: Blob, type: string): Promise<void> {
+		if (typeof ClipboardItem === "undefined") {
+			throw new Error("Image clipboard is not available.");
+		}
+		await navigator.clipboard.write([
+			new ClipboardItem({ [type]: blob }),
+		]);
+	}
+
+	/** Right-click menu on the track info: copy artist / artist - track /
+	 * artist - album - track. Missing fields disable the relevant entries. */
+	private showTrackCopyMenu(evt: MouseEvent): void {
+		if (!this.plugin.settings.contextualCopyButtons) return;
+		const track = this.plugin.player.getState().track;
+		if (!track) return;
+		evt.preventDefault();
+
+		const artist = track.artist?.trim() ?? "";
+		const title = track.title?.trim() ?? "";
+		const album = track.album?.trim() ?? "";
+		const entries: { label: string; parts: string[] }[] = [
+			{ label: "Copy artist", parts: [artist] },
+			{ label: "Copy artist - track", parts: [artist, title] },
+			{ label: "Copy artist - album - track", parts: [artist, album, title] },
+		];
+
+		const menu = new Menu();
+		for (const entry of entries) {
+			const text = entry.parts.filter(Boolean).join(" - ");
+			const complete = entry.parts.every(Boolean);
+			menu.addItem((item) =>
+				item
+					.setTitle(entry.label)
+					.setIcon("copy")
+					.setDisabled(!complete)
+					.onClick(() => this.copyToClipboard(text))
+			);
+		}
+		menu.showAtMouseEvent(evt);
+	}
+
+	private copyToClipboard(text: string): void {
+		void navigator.clipboard.writeText(text).catch(() => {
+			new Notice("Could not copy to the clipboard.");
+		});
 	}
 
 	/** The effective Now Playing view for a track. Internet-radio streams have no
@@ -356,6 +517,7 @@ export class StereoView extends ItemView {
 	/** Apply the configured Now Playing view (art shape / visualizer). */
 	applyNowPlayingView(): void {
 		this.applyLyricsStyle();
+		this.syncVolumeControl();
 		const state = this.plugin.player.getState();
 		this.setEffectiveView(this.effectiveNowPlayingView(state.track));
 		this.render(state);
@@ -472,17 +634,79 @@ export class StereoView extends ItemView {
 			const el = this.lyricsScroll.createDiv({
 				cls: "stereo-lyrics-line",
 				// Empty lines keep their height so verses stay visually grouped.
-				text: line.text || " ",
+				text: line.text || " ",
+			});
+			this.registerDomEvent(el, "contextmenu", (evt) => {
+				this.showLyricsMenu(evt, line.text);
 			});
 			if (lyrics.synced && line.time != null) {
 				const time = line.time;
 				this.registerDomEvent(el, "click", () => {
+					// Do not seek when the click finished a text selection.
+					const selection = el.ownerDocument.getSelection();
+					if (
+						selection &&
+						!selection.isCollapsed &&
+						selection.toString().trim()
+					) {
+						return;
+					}
 					this.plugin.player.seek(time);
 				});
 			}
 			this.lyricsLineEls.push(el);
 		}
 		this.updateLyricsHighlight(this.plugin.player.getState().position, true);
+	}
+
+	/** Right-click a lyric line: copy the line (or the current text selection)
+	 * or the whole lyrics with an `Artist - Track` header. */
+	private showLyricsMenu(evt: MouseEvent, lineText: string): void {
+		if (!this.plugin.settings.contextualCopyButtons) return;
+		const lyrics = this.lyricsData;
+		if (!lyrics) return;
+		evt.preventDefault();
+
+		const line = lineText.trim();
+		const body = lyrics.lines.map((entry) => entry.text).join("\n");
+		const track = this.plugin.player.getState().track;
+		const header = [track?.artist?.trim(), track?.title?.trim()]
+			.filter(Boolean)
+			.join(" - ");
+		const fullText = header ? `**${header}**\n\n${body}` : body;
+
+		// A selection inside the lyrics replaces "Copy line" with the selected
+		// text, so the menu reflects what the user is about to copy.
+		const selection = this.lyricsScroll.ownerDocument.getSelection();
+		const selectionInLyrics =
+			!!selection &&
+			!selection.isCollapsed &&
+			((!!selection.anchorNode &&
+				this.lyricsScroll.contains(selection.anchorNode)) ||
+				(!!selection.focusNode &&
+					this.lyricsScroll.contains(selection.focusNode)));
+		const selectedText =
+			selection && selectionInLyrics ? selection.toString() : "";
+		const copyingSelection = selectedText.trim().length > 0;
+
+		const menu = new Menu();
+		menu.addItem((item) =>
+			item
+				.setTitle(copyingSelection ? "Copy selection" : "Copy line")
+				.setIcon("copy")
+				.setDisabled(copyingSelection ? false : !line)
+				.onClick(() =>
+					this.copyToClipboard(copyingSelection ? selectedText : line)
+				)
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle("Copy all lyrics")
+				.setIcon("copy")
+				.setDisabled(!body.trim())
+				.onClick(() => this.copyToClipboard(fullText))
+		);
+		menu.showAtMouseEvent(evt);
 	}
 
 	private lyricsStatus(text: string): void {
@@ -511,12 +735,21 @@ export class StereoView extends ItemView {
 		current.addClass("stereo-lyrics-line-active");
 
 		// Center manually — scrollIntoView would also scroll ancestor panes.
-		const target =
-			current.offsetTop - this.lyricsScroll.clientHeight / 2 + current.clientHeight / 2;
-		this.lyricsScroll.scrollTo({
-			top: Math.max(0, target),
-			behavior: jump ? "auto" : "smooth",
-		});
+		// Keep the view still while the user is selecting text in the lyrics.
+		const selection = this.lyricsScroll.ownerDocument.getSelection();
+		const selecting =
+			!!selection &&
+			!selection.isCollapsed &&
+			!!selection.anchorNode &&
+			this.lyricsScroll.contains(selection.anchorNode);
+		if (!selecting) {
+			const target =
+				current.offsetTop - this.lyricsScroll.clientHeight / 2 + current.clientHeight / 2;
+			this.lyricsScroll.scrollTo({
+				top: Math.max(0, target),
+				behavior: jump ? "auto" : "smooth",
+			});
+		}
 	}
 
 	// --- construction ---
@@ -556,6 +789,15 @@ export class StereoView extends ItemView {
 		// Lyrics panel: swaps in for the art area, sized by the same variable.
 		this.lyricsWrap = page.createDiv({ cls: "stereo-lyrics-wrap stereo-hidden" });
 		this.lyricsScroll = this.lyricsWrap.createDiv({ cls: "stereo-lyrics" });
+		// Make Ctrl/Cmd+C work on a plain DOM selection (custom views are not
+		// editors, so do not rely on Obsidian's editor clipboard handling).
+		this.registerDomEvent(this.lyricsScroll, "copy", (evt) => {
+			const selection = this.lyricsScroll.ownerDocument.getSelection();
+			const text = selection?.toString() ?? "";
+			if (!text || !evt.clipboardData) return;
+			evt.clipboardData.setData("text/plain", text);
+			evt.preventDefault();
+		});
 
 		// Track info — one tight block so the three lines read as a unit.
 		// Artist and album navigate into the library when known.
@@ -575,6 +817,9 @@ export class StereoView extends ItemView {
 			this.setActiveTab("library");
 			this.library.openAlbum(track.albumId, track.album ?? "");
 		});
+		this.registerDomEvent(this.trackInfoEl, "contextmenu", (evt) =>
+			this.showTrackCopyMenu(evt)
+		);
 
 		// Seek row: elapsed | slider | −remaining
 		const seekRow = page.createDiv({ cls: "stereo-seek-row" });
@@ -614,6 +859,7 @@ export class StereoView extends ItemView {
 		// Extras row: queue · lyrics · random · station · favorite · volume
 		// (playback modes live on the queue page — they operate on the queue).
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
+		this.extrasRow = extrasRow;
 		this.queueButton = this.iconButton(extrasRow, "list-music", "Queue", () => {
 			this.setActiveTab("queue");
 		});
@@ -662,29 +908,38 @@ export class StereoView extends ItemView {
 			});
 		});
 
-		// Volume is a popover so the player keeps one compact control row. It
-		// sits last in the extras row and opens upward, right-aligned.
-		this.volumeControlEl = extrasRow.createDiv({
-			cls: "stereo-volume-control",
+		this.errorEl = page.createDiv({ cls: "stereo-error" });
+	}
+
+	/** Create or remove the volume control to match the setting. */
+	private syncVolumeControl(): void {
+		if (!this.plugin.settings.volumeControl) {
+			this.destroyVolumeControl();
+			this.plugin.applyVolumeControlSetting();
+			return;
+		}
+		if (!this.volumeControlEl) this.createVolumeControl();
+	}
+
+	private createVolumeControl(): void {
+		if (this.volumeControlEl || !this.extrasRow) return;
+		const control = this.extrasRow.createDiv({ cls: "stereo-volume-control" });
+		this.volumeControlEl = control;
+		const button = this.iconButton(control, "volume-2", "Volume", () => {
+			this.toggleVolumePopup();
 		});
-		this.volumeButton = this.iconButton(
-			this.volumeControlEl,
-			"volume-2",
-			"Volume",
-			() => {
-				this.toggleVolumePopup();
-			}
-		);
-		this.volumeButton.setAttribute("aria-haspopup", "true");
-		this.volumeButton.setAttribute("aria-expanded", "false");
-		this.volumePopup = this.volumeControlEl.createDiv({
+		this.volumeButton = button;
+		button.setAttribute("aria-haspopup", "true");
+		button.setAttribute("aria-expanded", "false");
+		const popup = control.createDiv({
 			cls: "stereo-volume-popup stereo-hidden",
 		});
+		this.volumePopup = popup;
 		// Decorative triangular track and the slot both live behind the
 		// native range input, which stays fully interactive.
-		this.volumePopup.createDiv({ cls: "stereo-volume-rail" });
-		this.volumePopup.createDiv({ cls: "stereo-volume-slot" });
-		this.volumeSlider = this.volumePopup.createEl("input", {
+		popup.createDiv({ cls: "stereo-volume-rail" });
+		popup.createDiv({ cls: "stereo-volume-slot" });
+		const slider = popup.createEl("input", {
 			cls: "stereo-volume",
 			type: "range",
 			attr: {
@@ -695,21 +950,21 @@ export class StereoView extends ItemView {
 				"aria-orientation": "vertical",
 			},
 		});
-		this.registerDomEvent(this.volumeSlider, "input", () => {
-			this.plugin.player.setVolume(Number(this.volumeSlider.value) / 100);
+		this.volumeSlider = slider;
+		this.registerDomEvent(slider, "input", () => {
+			this.plugin.player.setVolume(Number(slider.value) / 100);
 		});
+		this.registerVolumeDismissListeners();
 
 		// Wheel over the button or the slider changes volume in 5% steps.
 		// Delta is accumulated so trackpads do not race through the range.
 		this.registerDomEvent(
-			this.volumeControlEl,
+			control,
 			"wheel",
 			(evt) => {
 				if (evt.deltaY === 0) return;
 				evt.preventDefault();
-				if (!this.volumePopup.hasClass("stereo-hidden")) {
-					this.scheduleVolumeHide();
-				}
+				if (!popup.hasClass("stereo-hidden")) this.scheduleVolumeHide();
 				let delta = evt.deltaY;
 				if (evt.deltaMode === 1) delta *= 16;
 				else if (evt.deltaMode === 2) delta *= 100;
@@ -723,43 +978,71 @@ export class StereoView extends ItemView {
 			},
 			{ passive: false }
 		);
+	}
 
-		// Close on a click elsewhere in the window, including popout windows.
+	private destroyVolumeControl(): void {
+		this.clearVolumeHideTimer();
+		this.unregisterVolumeDismissListeners();
+		this.volumeWheelDelta = 0;
+		this.volumeControlEl?.remove();
+		this.volumeControlEl = null;
+		this.volumeButton = null;
+		this.volumePopup = null;
+		this.volumeSlider = null;
+	}
+
+	/** Close the popover on outside clicks/keys; only while the control exists. */
+	private registerVolumeDismissListeners(): void {
+		if (this.volumeDismissCleanup) return;
 		const doc = this.containerEl.ownerDocument;
-		this.registerDomEvent(doc, "pointerdown", (evt) => {
-			if (this.volumePopup.hasClass("stereo-hidden")) return;
+		const onPointerDown = (evt: PointerEvent): void => {
+			if (!this.volumePopup || this.volumePopup.hasClass("stereo-hidden")) return;
 			const target = evt.target as Node | null;
-			if (target && this.volumeControlEl.contains(target)) {
+			if (target && this.volumeControlEl?.contains(target)) {
 				// Keep it open while the user is grabbing the slider/button.
 				this.clearVolumeHideTimer();
 				return;
 			}
 			this.closeVolumePopup();
-		});
-		this.registerDomEvent(doc, "pointerup", () => {
-			if (this.volumePopup.hasClass("stereo-hidden")) return;
+		};
+		const onPointerUp = (): void => {
+			if (!this.volumePopup || this.volumePopup.hasClass("stereo-hidden")) return;
 			this.scheduleVolumeHide();
-		});
-		this.registerDomEvent(doc, "pointercancel", () => {
-			if (this.volumePopup.hasClass("stereo-hidden")) return;
+		};
+		const onPointerCancel = (): void => {
+			if (!this.volumePopup || this.volumePopup.hasClass("stereo-hidden")) return;
 			this.scheduleVolumeHide();
-		});
-		this.registerDomEvent(doc, "keydown", (evt) => {
-			if (this.volumePopup.hasClass("stereo-hidden")) return;
+		};
+		const onKeyDown = (evt: KeyboardEvent): void => {
+			if (!this.volumePopup || this.volumePopup.hasClass("stereo-hidden")) return;
 			if (evt.key === "Escape") {
 				this.closeVolumePopup(true);
 				return;
 			}
 			const target = evt.target as Node | null;
-			if (target && this.volumeControlEl.contains(target)) {
+			if (target && this.volumeControlEl?.contains(target)) {
 				this.scheduleVolumeHide();
 			}
-		});
+		};
+		doc.addEventListener("pointerdown", onPointerDown);
+		doc.addEventListener("pointerup", onPointerUp);
+		doc.addEventListener("pointercancel", onPointerCancel);
+		doc.addEventListener("keydown", onKeyDown);
+		this.volumeDismissCleanup = () => {
+			doc.removeEventListener("pointerdown", onPointerDown);
+			doc.removeEventListener("pointerup", onPointerUp);
+			doc.removeEventListener("pointercancel", onPointerCancel);
+			doc.removeEventListener("keydown", onKeyDown);
+		};
+	}
 
-		this.errorEl = page.createDiv({ cls: "stereo-error" });
+	private unregisterVolumeDismissListeners(): void {
+		this.volumeDismissCleanup?.();
+		this.volumeDismissCleanup = null;
 	}
 
 	private toggleVolumePopup(): void {
+		if (!this.volumePopup) return;
 		if (this.volumePopup.hasClass("stereo-hidden")) {
 			this.openVolumePopup();
 		} else {
@@ -768,10 +1051,11 @@ export class StereoView extends ItemView {
 	}
 
 	private openVolumePopup(focusSlider = true): void {
+		if (!this.volumePopup || !this.volumeButton) return;
 		this.volumePopup.removeClass("stereo-hidden");
 		this.volumeButton.setAttribute("aria-expanded", "true");
 		this.volumeButton.addClass("stereo-button-active");
-		if (focusSlider) this.volumeSlider.focus();
+		if (focusSlider) this.volumeSlider?.focus();
 		this.scheduleVolumeHide();
 	}
 
@@ -779,9 +1063,9 @@ export class StereoView extends ItemView {
 		this.clearVolumeHideTimer();
 		if (!this.volumePopup || this.volumePopup.hasClass("stereo-hidden")) return;
 		this.volumePopup.addClass("stereo-hidden");
-		this.volumeButton.setAttribute("aria-expanded", "false");
-		this.volumeButton.removeClass("stereo-button-active");
-		if (returnFocus) this.volumeButton.focus();
+		this.volumeButton?.setAttribute("aria-expanded", "false");
+		this.volumeButton?.removeClass("stereo-button-active");
+		if (returnFocus) this.volumeButton?.focus();
 	}
 
 	/** Hide the popover after three seconds without interaction. */
@@ -789,10 +1073,12 @@ export class StereoView extends ItemView {
 		this.clearVolumeHideTimer();
 		this.volumeHideTimer = window.setTimeout(() => {
 			this.volumeHideTimer = null;
+			const control = this.volumeControlEl;
+			if (!control) return;
 			// Only hand focus back if focus is still in the control; otherwise
 			// auto-hiding must not steal it from wherever the user went.
-			const active = this.volumeControlEl.ownerDocument.activeElement;
-			this.closeVolumePopup(this.volumeControlEl.contains(active));
+			const active = control.ownerDocument.activeElement;
+			this.closeVolumePopup(control.contains(active));
 		}, 3000);
 	}
 
@@ -929,6 +1215,7 @@ export class StereoView extends ItemView {
 
 	private showQueueMenu(index: number, position: { x: number; y: number }): void {
 		const queue = this.plugin.player.getState().queue;
+		const song = queue[index];
 		const menu = new Menu();
 		menu.addItem((item) => {
 			item.setTitle("Move to next").setIcon("list-plus")
@@ -936,6 +1223,28 @@ export class StereoView extends ItemView {
 					if (this.plugin.player.getState().queue === queue) this.plugin.player.moveToNext(index);
 				});
 		});
+		if (this.plugin.settings.contextualCopyButtons) {
+			const artist = song?.artist?.trim() ?? "";
+			const title = song?.title?.trim() ?? "";
+			const album = song?.album?.trim() ?? "";
+			const artistTrack = [artist, title].filter(Boolean).join(" - ");
+			const artistAlbumTrack = [artist, album, title].filter(Boolean).join(" - ");
+			menu.addSeparator();
+			menu.addItem((item) =>
+				item
+					.setTitle("Copy artist - track")
+					.setIcon("copy")
+					.setDisabled(!artist || !title)
+					.onClick(() => this.copyToClipboard(artistTrack))
+			);
+			menu.addItem((item) =>
+				item
+					.setTitle("Copy artist - album - track")
+					.setIcon("copy")
+					.setDisabled(!artist || !album || !title)
+					.onClick(() => this.copyToClipboard(artistAlbumTrack))
+			);
+		}
 		menu.showAtPosition(position);
 	}
 
@@ -972,6 +1281,9 @@ export class StereoView extends ItemView {
 		this.registerDomEvent(meta, "click", () => {
 			this.setActiveTab("nowPlaying");
 		});
+		this.registerDomEvent(meta, "contextmenu", (evt) =>
+			this.showTrackCopyMenu(evt)
+		);
 		this.registerDomEvent(this.miniArtistEl, "click", (evt) => {
 			const track = this.plugin.player.getState().track;
 			if (!track?.artistId) return;
@@ -1209,15 +1521,17 @@ export class StereoView extends ItemView {
 			this.setRemaining(state.position, state.duration);
 		}
 
-		this.volumeSlider.value = String(Math.round(state.volume * 100));
-		this.volumePopup.style.setProperty(
-			"--stereo-volume-level",
-			`${Math.round(state.volume * 100)}%`
-		);
-		this.volumePopup.style.setProperty(
-			"--stereo-volume-ratio",
-			String(state.volume)
-		);
+		if (this.volumeSlider && this.volumePopup) {
+			this.volumeSlider.value = String(Math.round(state.volume * 100));
+			this.volumePopup.style.setProperty(
+				"--stereo-volume-level",
+				`${Math.round(state.volume * 100)}%`
+			);
+			this.volumePopup.style.setProperty(
+				"--stereo-volume-ratio",
+				String(state.volume)
+			);
+		}
 
 		this.errorEl.setText(state.error ?? "");
 		this.errorEl.toggleClass("stereo-error-visible", state.error != null);

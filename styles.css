@@ -387,6 +387,26 @@
 	padding-top: var(--size-4-8);
 }
 
+/* Inline playback queue — read-only rows in the art/lyrics slot. */
+
+.stereo-now-queue-wrap {
+	display: flex;
+	flex: 1;
+	min-height: 120px;
+	padding: var(--size-4-2);
+}
+
+.stereo-now-queue {
+	flex: 1;
+	min-width: 0;
+	overflow-y: auto;
+	padding: 0 var(--size-4-3);
+}
+
+.stereo-now-queue-row {
+	cursor: pointer;
+}
+
 /* Section headings on the Favorites page */
 .stereo-section-heading {
 	font-size: var(--font-smaller);
@@ -460,12 +480,56 @@
 }
 
 /* Track info — the three lines sit in one tight block (title / artist /
-   album), not spread apart by the page gap, so the art gets the room. */
+   album), not spread apart by the page gap, so the art gets the room.
+   When the art slot shows lyrics, the queue or a visualizer, a small cover
+   is attached to the left of the text. */
+
+.stereo-track-row {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.stereo-track-cover {
+	flex: 0 0 auto;
+	width: 3.8em;
+	height: 3.8em;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-faint);
+}
+
+.stereo-track-cover-img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.stereo-track-cover-placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+.stereo-track-cover-placeholder svg {
+	width: 36%;
+	height: 36%;
+}
 
 .stereo-track-info {
 	display: flex;
 	flex-direction: column;
 	gap: var(--size-2-1);
+	min-width: 0;
 	/* The art wrap (flex: 1) absorbs the surplus and pushes the control cluster
 	   to the bottom, so the title/artist/album block sits statically on top of
 	   the seek bar regardless of Now Playing view or widget size. */

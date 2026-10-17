@@ -110,6 +110,10 @@ export class StereoView extends ItemView {
 	private artPlaceholder!: HTMLElement;
 	private viz!: Visualizer;
 	private nowPlayingView: NowPlayingView = "record";
+	private trackRowEl!: HTMLElement;
+	private trackCoverEl!: HTMLElement;
+	private trackCoverImg!: HTMLImageElement;
+	private trackCoverPlaceholder!: HTMLElement;
 	private trackInfoEl!: HTMLElement;
 	private titleEl!: HTMLElement;
 	private artistEl!: HTMLElement;
@@ -140,6 +144,10 @@ export class StereoView extends ItemView {
 	private lyricsWrap!: HTMLElement;
 	private lyricsScroll!: HTMLElement;
 	private lyricsVisible = false;
+	// Inline playback queue panel (also swaps in for the art area)
+	private nowQueueWrap!: HTMLElement;
+	private nowQueueScroll!: HTMLElement;
+	private queueVisible = false;
 	/** Track id the panel currently shows; null forces a reload. */
 	private lyricsLoadedFor: string | null = null;
 	/** Bumped per load; stale async loads bail. */
@@ -331,9 +339,15 @@ export class StereoView extends ItemView {
 		if (!page || page.clientHeight === 0) return;
 		let others = 0;
 		for (const child of Array.from(page.children)) {
-			// The art wrap and the lyrics panel both flex-grow into the leftover
-			// space, so neither counts toward the fixed rows we subtract.
-			if (child === this.artWrap || child === this.lyricsWrap) continue;
+			// The art wrap, lyrics panel and inline queue all flex-grow into the
+			// leftover space, so none counts toward the fixed rows we subtract.
+			if (
+				child === this.artWrap ||
+				child === this.lyricsWrap ||
+				child === this.nowQueueWrap
+			) {
+				continue;
+			}
 			others += (child as HTMLElement).offsetHeight;
 		}
 		const pageStyle = getComputedStyle(page);
@@ -465,7 +479,8 @@ export class StereoView extends ItemView {
 	}
 
 	/** Right-click menu on the track info: copy artist / artist - track /
-	 * artist - album - track. Missing fields disable the relevant entries. */
+	 * artist - album - track, plus the cover. Missing fields disable the
+	 * relevant entries. */
 	private showTrackCopyMenu(evt: MouseEvent): void {
 		if (!this.plugin.settings.contextualCopyButtons) return;
 		const track = this.plugin.player.getState().track;
@@ -493,6 +508,17 @@ export class StereoView extends ItemView {
 					.onClick(() => this.copyToClipboard(text))
 			);
 		}
+		const coverArt = track.coverArt;
+		menu.addSeparator();
+		menu.addItem((item) =>
+			item
+				.setTitle("Copy cover")
+				.setIcon("image")
+				.setDisabled(!coverArt)
+				.onClick(() => {
+					if (coverArt) void this.copyCover(coverArt);
+				})
+		);
 		menu.showAtMouseEvent(evt);
 	}
 
@@ -535,6 +561,7 @@ export class StereoView extends ItemView {
 			this.viz.setMode(view);
 		}
 		this.updateVizRunning();
+		this.updateTrackCoverVisibility();
 	}
 
 	/** The visualizer animates only while it is actually on screen. */
@@ -544,12 +571,25 @@ export class StereoView extends ItemView {
 			isViz &&
 			this.activeTab === "nowPlaying" &&
 			!this.searchActive &&
-			!this.lyricsVisible
+			!this.lyricsVisible &&
+			!this.queueVisible
 		) {
 			this.viz.start();
 		} else {
 			this.viz.stop();
 		}
+	}
+
+	/** Show the small cover beside the track text whenever the big art is not
+	 * visible: lyrics/queue panel open, or a visualizer in the art slot. */
+	private updateTrackCoverVisibility(): void {
+		const coverArt = this.plugin.player.getState().track?.coverArt;
+		const show =
+			!!coverArt &&
+			(this.lyricsVisible ||
+				this.queueVisible ||
+				isVizView(this.nowPlayingView));
+		this.trackCoverEl.toggleClass("stereo-hidden", !show);
 	}
 
 	// --- lyrics ---
@@ -586,15 +626,24 @@ export class StereoView extends ItemView {
 		this.contentEl.style.setProperty("--stereo-lyrics-size", `${px}px`);
 	}
 
-	/** Swap the art area and the lyrics panel; (re)load lyrics when shown. */
-	private applyLyricsVisibility(): void {
-		this.artWrap.toggleClass("stereo-hidden", this.lyricsVisible);
-		this.lyricsWrap.toggleClass("stereo-hidden", !this.lyricsVisible);
-		this.lyricsButton.toggleClass("stereo-button-active", this.lyricsVisible);
+	/** Swap the art area between the cover/visualizer, lyrics and the inline
+	 * queue. The two panels are mutually exclusive. */
+	private applyArtPanels(): void {
+		const showLyrics = this.lyricsVisible;
+		const showQueue = this.queueVisible;
+		this.artWrap.toggleClass("stereo-hidden", showLyrics || showQueue);
+		this.lyricsWrap.toggleClass("stereo-hidden", !showLyrics);
+		this.nowQueueWrap.toggleClass("stereo-hidden", !showQueue);
+		this.lyricsButton.toggleClass("stereo-button-active", showLyrics);
+		this.queueButton.toggleClass("stereo-button-active", showQueue);
 		this.updateVizRunning();
+		this.updateTrackCoverVisibility();
 		this.updateArtSize();
-		if (this.lyricsVisible) {
+		if (showLyrics) {
 			void this.loadLyrics(this.plugin.player.getState().track);
+		}
+		if (showQueue) {
+			this.renderNowQueue(this.plugin.player.getState(), true);
 		}
 	}
 
@@ -799,9 +848,60 @@ export class StereoView extends ItemView {
 			evt.preventDefault();
 		});
 
-		// Track info — one tight block so the three lines read as a unit.
-		// Artist and album navigate into the library when known.
-		this.trackInfoEl = page.createDiv({ cls: "stereo-track-info" });
+		// Inline queue panel for Now Playing. It shares the art/lyrics slot,
+		// but rows are read-only here: click (or Enter/Space) plays an entry.
+		this.nowQueueWrap = page.createDiv({ cls: "stereo-now-queue-wrap stereo-hidden" });
+		this.nowQueueScroll = this.nowQueueWrap.createDiv({
+			cls: "stereo-now-queue",
+			attr: { role: "list" },
+		});
+		const nowQueueRowAt = (target: EventTarget | null): HTMLElement | null => {
+			const element = target as Element | null;
+			return element?.closest<HTMLElement>(".stereo-now-queue-row") ?? null;
+		};
+		this.registerDomEvent(this.nowQueueScroll, "click", (evt) => {
+			const row = nowQueueRowAt(evt.target);
+			if (!row) return;
+			const index = Number(row.dataset.queueIndex);
+			if (Number.isInteger(index)) void this.plugin.player.playAt(index);
+		});
+		this.registerDomEvent(this.nowQueueScroll, "keydown", (evt) => {
+			if (evt.key !== "Enter" && evt.key !== " ") return;
+			const row = nowQueueRowAt(evt.target);
+			if (!row) return;
+			evt.preventDefault();
+			const index = Number(row.dataset.queueIndex);
+			if (Number.isInteger(index)) void this.plugin.player.playAt(index);
+		});
+		this.registerDomEvent(this.nowQueueScroll, "contextmenu", (evt) => {
+			const row = nowQueueRowAt(evt.target);
+			if (!row) return;
+			const index = Number(row.dataset.queueIndex);
+			if (!Number.isInteger(index)) return;
+			const song = this.plugin.player.getState().queue[index];
+			this.showSongCopyMenu(evt, song);
+		});
+
+		// Track info — the three lines sit in one tight block. When the big art
+		// is hidden (lyrics/queue panels) or replaced by a visualizer, a small
+		// cover sits next to the text instead.
+		this.trackRowEl = page.createDiv({ cls: "stereo-track-row" });
+		this.trackCoverEl = this.trackRowEl.createDiv({
+			cls: "stereo-track-cover stereo-hidden",
+		});
+		this.trackCoverImg = this.trackCoverEl.createEl("img", {
+			cls: "stereo-track-cover-img stereo-hidden",
+			attr: { alt: "" },
+		});
+		this.trackCoverPlaceholder = this.trackCoverEl.createDiv({
+			cls: "stereo-track-cover-placeholder stereo-hidden",
+		});
+		setIcon(this.trackCoverPlaceholder, "music");
+		this.registerDomEvent(this.trackCoverImg, "error", () => {
+			this.trackCoverImg.addClass("stereo-hidden");
+			this.trackCoverPlaceholder.removeClass("stereo-hidden");
+		});
+		this.trackInfoEl = this.trackRowEl.createDiv({ cls: "stereo-track-info" });
 		this.titleEl = this.trackInfoEl.createDiv({ cls: "stereo-track-title", text: "Nothing playing" });
 		this.artistEl = this.trackInfoEl.createDiv({ cls: "stereo-track-artist" });
 		this.albumEl = this.trackInfoEl.createDiv({ cls: "stereo-track-album" });
@@ -817,7 +917,7 @@ export class StereoView extends ItemView {
 			this.setActiveTab("library");
 			this.library.openAlbum(track.albumId, track.album ?? "");
 		});
-		this.registerDomEvent(this.trackInfoEl, "contextmenu", (evt) =>
+		this.registerDomEvent(this.trackRowEl, "contextmenu", (evt) =>
 			this.showTrackCopyMenu(evt)
 		);
 
@@ -861,11 +961,14 @@ export class StereoView extends ItemView {
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
 		this.queueButton = this.iconButton(extrasRow, "list-music", "Queue", () => {
-			this.setActiveTab("queue");
+			this.queueVisible = !this.queueVisible;
+			if (this.queueVisible) this.lyricsVisible = false;
+			this.applyArtPanels();
 		});
 		this.lyricsButton = this.iconButton(extrasRow, "mic-vocal", "Lyrics", () => {
 			this.lyricsVisible = !this.lyricsVisible;
-			this.applyLyricsVisibility();
+			if (this.lyricsVisible) this.queueVisible = false;
+			this.applyArtPanels();
 		});
 		this.iconButton(extrasRow, "dices", "Play a random song", () => {
 			void (async () => {
@@ -1223,29 +1326,46 @@ export class StereoView extends ItemView {
 					if (this.plugin.player.getState().queue === queue) this.plugin.player.moveToNext(index);
 				});
 		});
-		if (this.plugin.settings.contextualCopyButtons) {
-			const artist = song?.artist?.trim() ?? "";
-			const title = song?.title?.trim() ?? "";
-			const album = song?.album?.trim() ?? "";
-			const artistTrack = [artist, title].filter(Boolean).join(" - ");
-			const artistAlbumTrack = [artist, album, title].filter(Boolean).join(" - ");
-			menu.addSeparator();
-			menu.addItem((item) =>
-				item
-					.setTitle("Copy artist - track")
-					.setIcon("copy")
-					.setDisabled(!artist || !title)
-					.onClick(() => this.copyToClipboard(artistTrack))
-			);
-			menu.addItem((item) =>
-				item
-					.setTitle("Copy artist - album - track")
-					.setIcon("copy")
-					.setDisabled(!artist || !album || !title)
-					.onClick(() => this.copyToClipboard(artistAlbumTrack))
-			);
-		}
+		this.addSongCopyItems(menu, song, true);
 		menu.showAtPosition(position);
+	}
+
+	/** Right-click a row in the inline Now Playing queue: copy actions only. */
+	private showSongCopyMenu(evt: MouseEvent, song: Song | undefined): void {
+		if (!this.plugin.settings.contextualCopyButtons || !song) return;
+		evt.preventDefault();
+		const menu = new Menu();
+		this.addSongCopyItems(menu, song, false);
+		menu.showAtMouseEvent(evt);
+	}
+
+	/** Shared copy entries for queue rows (editor and inline player). */
+	private addSongCopyItems(
+		menu: Menu,
+		song: Song | undefined,
+		separator: boolean
+	): void {
+		if (!this.plugin.settings.contextualCopyButtons) return;
+		const artist = song?.artist?.trim() ?? "";
+		const title = song?.title?.trim() ?? "";
+		const album = song?.album?.trim() ?? "";
+		const artistTrack = [artist, title].filter(Boolean).join(" - ");
+		const artistAlbumTrack = [artist, album, title].filter(Boolean).join(" - ");
+		if (separator) menu.addSeparator();
+		menu.addItem((item) =>
+			item
+				.setTitle("Copy artist - track")
+				.setIcon("copy")
+				.setDisabled(!artist || !title)
+				.onClick(() => this.copyToClipboard(artistTrack))
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle("Copy artist - album - track")
+				.setIcon("copy")
+				.setDisabled(!artist || !album || !title)
+				.onClick(() => this.copyToClipboard(artistAlbumTrack))
+		);
 	}
 
 	private buildMiniPlayer(root: HTMLElement): void {
@@ -1393,10 +1513,16 @@ export class StereoView extends ItemView {
 			this.pages[id].toggleClass("stereo-page-active", id === tab);
 			this.tabButtons[id]?.toggleClass("stereo-tab-active", id === tab);
 		}
-		this.queueButton?.toggleClass("stereo-button-active", tab === "queue");
 		this.updateMiniVisibility();
 		this.updateVizRunning();
 		this.updateArtSize();
+		if (tab === "nowPlaying" && this.queueVisible) {
+			const index = this.plugin.player.getState().index;
+			requestAnimationFrame(() => this.centerNowQueue(index));
+		}
+		if (tab === "queue") {
+			requestAnimationFrame(() => this.centerQueueEditor());
+		}
 	}
 
 	/** The mini player shows on every screen except the full player. */
@@ -1547,7 +1673,72 @@ export class StereoView extends ItemView {
 			this.renderedQueue = state.queue;
 			this.renderedIndex = state.index;
 			this.renderQueue(state);
+			if (this.queueVisible) this.renderNowQueue(state, true);
 		}
+	}
+
+	/** Compact, read-only queue shown in place of the album art. */
+	private renderNowQueue(
+		state: Readonly<PlayerState>,
+		center: boolean
+	): void {
+		const list = this.nowQueueScroll;
+		list.empty();
+		if (state.queue.length === 0) {
+			list.removeAttribute("role");
+			list.createDiv({ cls: "stereo-queue-empty", text: "The queue is empty." });
+			return;
+		}
+
+		list.setAttribute("role", "list");
+		state.queue.forEach((song, i) => {
+			const row = list.createDiv({
+				cls: "stereo-queue-row stereo-now-queue-row",
+				attr: { role: "listitem" },
+			});
+			row.dataset.queueIndex = String(i);
+			row.tabIndex = 0;
+			row.toggleClass("stereo-queue-row-current", i === state.index);
+			row.setAttribute("aria-label", `${i + 1}. ${song.title}. Play.`);
+			row.createDiv({ cls: "stereo-queue-row-number", text: String(i + 1) });
+			const meta = row.createDiv({ cls: "stereo-queue-row-meta" });
+			meta.createDiv({ cls: "stereo-queue-row-title", text: song.title });
+			meta.createDiv({ cls: "stereo-queue-row-artist", text: song.artist ?? "" });
+		});
+
+		if (center && state.index >= 0) {
+			const index = state.index;
+			requestAnimationFrame(() => this.centerNowQueue(index));
+		}
+	}
+
+	/** Put the current row about a third of the way down the panel, leaving
+	 * the upcoming queue visible below it. */
+	private centerNowQueue(index: number): void {
+		if (!this.queueVisible) return;
+		const list = this.nowQueueScroll;
+		if (!list || list.clientHeight === 0) return;
+		const rows = list.querySelectorAll<HTMLElement>(".stereo-now-queue-row");
+		const row = rows[index];
+		if (!row) return;
+		const listRect = list.getBoundingClientRect();
+		const rowRect = row.getBoundingClientRect();
+		const rowTop = rowRect.top - listRect.top + list.scrollTop;
+		const target = rowTop - listRect.height / 3 + rowRect.height / 2;
+		list.scrollTo({ top: Math.max(0, target), behavior: "auto" });
+	}
+
+	/** Same one-third positioning for the full Queue editor tab. */
+	private centerQueueEditor(): void {
+		const list = this.queueList;
+		if (!list || list.clientHeight === 0) return;
+		const row = list.querySelector<HTMLElement>(".stereo-queue-row-current");
+		if (!row) return;
+		const listRect = list.getBoundingClientRect();
+		const rowRect = row.getBoundingClientRect();
+		const rowTop = rowRect.top - listRect.top + list.scrollTop;
+		const target = rowTop - listRect.height / 3 + rowRect.height / 2;
+		list.scrollTo({ top: Math.max(0, target), behavior: "auto" });
 	}
 
 	private renderArt(state: Readonly<PlayerState>): void {
@@ -1562,7 +1753,11 @@ export class StereoView extends ItemView {
 			this.miniThumbImg.addClass("stereo-hidden");
 			this.miniThumbImg.removeAttribute("src");
 			this.miniThumbPlaceholder.removeClass("stereo-hidden");
+			this.trackCoverImg.addClass("stereo-hidden");
+			this.trackCoverImg.removeAttribute("src");
+			this.trackCoverPlaceholder.removeClass("stereo-hidden");
 			this.viz.setCoverImage(null);
+			this.updateTrackCoverVisibility();
 			return;
 		}
 		this.artImg.removeClass("stereo-hidden");
@@ -1573,6 +1768,10 @@ export class StereoView extends ItemView {
 		this.miniThumbImg.removeClass("stereo-hidden");
 		this.miniThumbPlaceholder.addClass("stereo-hidden");
 		this.miniThumbImg.src = this.plugin.client.coverArtUrl(coverArt, 120);
+		this.trackCoverImg.removeClass("stereo-hidden");
+		this.trackCoverPlaceholder.addClass("stereo-hidden");
+		this.trackCoverImg.src = this.plugin.client.coverArtUrl(coverArt, 200);
+		this.updateTrackCoverVisibility();
 	}
 
 	private renderQueue(state: Readonly<PlayerState>): void {
@@ -1612,6 +1811,9 @@ export class StereoView extends ItemView {
 			});
 			setIcon(removeButton, "x");
 		});
+		if (this.activeTab === "queue") {
+			requestAnimationFrame(() => this.centerQueueEditor());
+		}
 	}
 }
 

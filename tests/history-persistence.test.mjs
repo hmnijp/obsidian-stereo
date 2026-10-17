@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { build } from "esbuild";
 
@@ -15,13 +16,16 @@ const result = await build({
 				registerView() {} addSettingTab() {} addRibbonIcon() {} addCommand() {}
 			}
 			export class Notice {} export class WorkspaceLeaf {}
+			export class App {} export class PluginSettingTab {
+				containerEl = { addClass() {} };
+				constructor() {}
+			}
 			export class Modal {} export class Setting {} export class FuzzySuggestModal {}
 			export class ButtonComponent {} export function setIcon() {}
 			export function debounce(fn) { const call = () => { call.pending = true; }; call.cancel = () => { call.pending = false; }; call.run = () => { if (call.pending) fn(); call.pending = false; }; return call; }
 			export function requestUrl() { throw new Error("Unexpected network request"); }
 		` }));
 		builder.onLoad({ filter: /[\\/]src[\\/]view\.ts$/ }, () => ({ contents: 'export const STEREO_VIEW_TYPE = "stereo-player"; export class StereoView {}' }));
-		builder.onLoad({ filter: /[\\/]src[\\/]settings\.ts$/ }, () => ({ contents: 'export const DEFAULT_SETTINGS = { serverUrl: "", username: "", password: "", scrobbleEnabled: false }; export const SHARE_TTL_PRESETS = []; export class StereoSettingTab {}' }));
 	} }],
 });
 const { default: StereoPlugin } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
@@ -36,6 +40,12 @@ class AudioDouble extends EventTarget {
 globalThis.Audio = AudioDouble;
 const settings = { serverUrl: "https://music.invalid", username: "listener", password: "secret" };
 const song = { id: "one", title: "One", duration: 200 };
+
+function activeServer(plugin) {
+	return plugin.settings.servers.find(
+		(server) => server.id === plugin.settings.activeServerId
+	);
+}
 
 async function setup(t, initial) {
 	const plugin = new StereoPlugin();
@@ -60,6 +70,23 @@ test("plugin loads legacy data and saves current queue alongside history before 
 		assert.equal(restarted.player.getState().playing, false);
 		assert.equal(restarted.writes.length, 0);
 	}
+});
+
+test("legacy full-URL history identity migrates to the host identity", async (t) => {
+	const legacyConnection = createHash("md5")
+		.update(JSON.stringify(["https://music.invalid", "listener"]))
+		.digest("hex");
+	const plugin = await setup(t, {
+		settings,
+		playerState: { queue: [song], index: 0, position: 12, volume: 0.4 },
+		history: {
+			connection: legacyConnection,
+			entries: [{ song, playedAt: Date.now() }],
+		},
+	});
+	assert.deepEqual(plugin.player.getState().queue, [song]);
+	assert.equal(plugin.player.history.getEntries().length, 1);
+	assert.notEqual(plugin.player.history.getConnection(), legacyConnection);
 });
 
 test("queue origin is cleared by edits and survives restart", async (t) => {
@@ -119,19 +146,19 @@ test("connection edits keep history and queue until committed; other settings ne
 	await plugin.player.playTrack(song);
 	await plugin.player.playTrack(song);
 	assert.equal(plugin.player.getState().canUndo, true);
-	plugin.settings.password = "replacement";
+	activeServer(plugin).password = "replacement";
 	await plugin.saveSettings();
 	assert.equal(plugin.writes.at(-1).history.entries.length, 2);
 	// Typing through a wrong value and correcting it before leaving the field.
-	plugin.settings.username = "listene";
+	activeServer(plugin).username = "listene";
 	await plugin.saveSettings();
-	plugin.settings.username = "listener";
+	activeServer(plugin).username = "listener";
 	await plugin.saveSettings();
 	await plugin.commitConnection();
 	assert.equal(plugin.player.history.getEntries().length, 2);
 	assert.deepEqual(plugin.player.getState().queue, [song]);
 	assert.equal(plugin.player.getState().canUndo, true);
-	plugin.settings.username = "someone-else";
+	activeServer(plugin).username = "someone-else";
 	await plugin.saveSettings();
 	assert.equal(plugin.writes.at(-1).history.entries.length, 2);
 	assert.deepEqual(plugin.writes.at(-1).playerState.queue, [song]);
@@ -140,13 +167,13 @@ test("connection edits keep history and queue until committed; other settings ne
 	assert.deepEqual(saved.history.entries, []);
 	assert.deepEqual(saved.playerState.queue, []);
 	assert.equal(plugin.player.getState().canUndo, false);
-	assert.equal(saved.settings.username, "someone-else");
+	assert.equal(saved.settings.servers[0].username, "someone-else");
 });
 
 test("reloading an uncommitted account edit drops the old queue; legacy and same-account data keep it", async (t) => {
 	const plugin = await setup(t, { settings });
 	await plugin.player.playTrack(song);
-	plugin.settings.username = "someone-else";
+	activeServer(plugin).username = "someone-else";
 	await plugin.saveSettings();
 	const midEdit = plugin.writes.at(-1);
 	assert.deepEqual(midEdit.playerState.queue, [song]);
@@ -154,7 +181,7 @@ test("reloading an uncommitted account edit drops the old queue; legacy and same
 	assert.deepEqual(restarted.player.getState().queue, []);
 	assert.equal(restarted.player.getState().track, null);
 	assert.deepEqual(restarted.player.history.getEntries(), []);
-	assert.equal(restarted.settings.username, "someone-else");
+	assert.equal(activeServer(restarted).username, "someone-else");
 	const playerState = { queue: [song], index: 0, position: 12, volume: 0.4 };
 	const legacy = await setup(t, { settings, playerState });
 	assert.deepEqual(legacy.player.getState().queue, [song]);

@@ -1,4 +1,5 @@
 import { md5Hex } from "./md5";
+import { activeServer } from "./servers";
 import type { StereoSettings } from "./settings";
 import type { Song } from "./subsonic";
 
@@ -13,8 +14,33 @@ export interface HistorySnapshot {
 }
 
 /** Identifies the configured account without persisting connection credentials. */
+function playbackHost(server: ReturnType<typeof activeServer>): string {
+	const raw = server?.wanUrl || server?.lanUrl || "";
+	if (!raw) return "";
+	const value = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+		? raw
+		: `http://${raw}`;
+	try {
+		return new URL(value).host || raw;
+	} catch {
+		return raw;
+	}
+}
+
+/**
+ * Playback identity intentionally ignores the path and scheme: two endpoints
+ * on the same host belong to the same account when the username matches.
+ */
 export function historyConnection(settings: StereoSettings): string {
-	return md5Hex(JSON.stringify([settings.serverUrl, settings.username]));
+	const server = activeServer(settings);
+	return md5Hex(JSON.stringify([playbackHost(server), server?.username ?? ""]));
+}
+
+/** Old identity based on the full server URL, used only to migrate saved data. */
+export function legacyHistoryConnection(settings: StereoSettings): string {
+	const server = activeServer(settings);
+	const url = server?.wanUrl || server?.lanUrl || "";
+	return md5Hex(JSON.stringify([url, server?.username ?? ""]));
 }
 
 function metadata(raw: unknown): Song | null {

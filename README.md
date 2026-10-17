@@ -41,10 +41,22 @@ your notes.
   the player, menus, or detail pages, and browse them all on a Favorites page.
 - Share links for tracks, albums, playlists, artists, and the current queue.
   Links use original files; choose a lifetime and optional downloads, then copy
-  the public URL. Manage existing links from the link icon next to Favorites and
-  Recently played.
+  the public URL. Right-click the player's share button to share the current
+  album, artist, or choose a playlist. Manage existing links from the link icon
+  next to Favorites and Recently played.
 - Manage internet radio stations from the player: add, edit, and remove
   (requires an admin account on the server).
+
+**Servers**
+- Save multiple servers and accounts, each with its own WAN URL, optional LAN
+  URL, share URL, and login.
+- Connection mode per server: Auto (LAN first), WAN only, or LAN only. Auto falls
+  back to WAN when LAN is unreachable and retries LAN periodically.
+- Servers on the same host with the same username share one playback queue and
+  history, so switching between endpoints does not stop playback.
+- Share links always use the server's share URL, falling back to its WAN URL.
+- Edit existing links from the share manager: description, expiry, and downloads.
+- `Allow downloads` requires Navidrome 0.64+ with `EnableDownloads` enabled.
 
 **Queue & stations**
 - Full-page queue with playback modes, save-as-playlist, and persistence across
@@ -64,10 +76,11 @@ your notes.
 ## Setup
 
 1. Install and enable the plugin.
-2. Open **Settings → Stereo** and enter your server URL, username, and
-   password.
-3. Use **Test connection** to confirm the server is reachable, then open the
-   player from the ribbon icon or the **Open player** command.
+2. Open **Settings → Stereo** and add a server with its WAN URL, optional
+   LAN/share URLs, username, and password. The radio button selects the active
+   server; the pencil edits it.
+3. Use **Retest** to confirm the server is reachable, then open the player from
+   the ribbon icon or the **Open player** command.
 
 Settings also cover track click behavior, sharing, Now Playing view, lyrics font,
 and search tuning.
@@ -82,27 +95,27 @@ and search tuning.
 ## Data and network transparency
 
 - Music playback, browsing, favorites, scrobbling, and station building talk
-  **only** to the server URL you configure. Nothing is sent anywhere until you
+  **only** to the server URLs you configure. Nothing is sent anywhere until you
   configure a server.
 - Lyrics are fetched from your server first; if your server has none for the
   current track, Stereo queries [LRCLIB](https://lrclib.net) (a free, public
   lyrics database) with the track's title, artist, album, and duration. No
   account data is sent.
-- Your server URL, username, and **password are stored in plain text** in
+- Your server URLs, usernames, and **passwords are stored in plain text** in
   `.obsidian/plugins/stereo/data.json` inside your vault. If you sync or share
-  your vault, that file goes with it. Consider a dedicated, limited account on
-  your music server.
+  your vault, that file goes with it. Consider dedicated, limited accounts on
+  your music servers.
 - No telemetry, no analytics.
 - Share links are public: anyone with the URL can listen until it expires.
-  Links are stored on your server, not in the plugin. If Obsidian connects over
-  LAN, set **Public link base URL (WAN)** so copied links work outside your network.
+  Links are stored on your server, not in the plugin. Each server can define a
+  share base URL; without one, links use its WAN URL.
 - Recently played stores track IDs, display metadata (title, artist, album,
   artwork ID, genre, duration, and favorite status), and play timestamps locally
   in the same `data.json`, limited to 200 entries for the configured
   server/account. History records actual song starts, including replays and
   repeats, and excludes radio. It contains no passwords or authenticated
   stream/artwork URLs. Clear history removes these entries without changing
-  playback or the queue. Changing the server URL or username clears history and
+  playback or the queue. Changing the active server or account clears history and
   the previous account's queue/undo once you leave the field.
   There is no background history import or cloud history sync feature; vault
   syncing can copy `data.json` along with your other vault files.

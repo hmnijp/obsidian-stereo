@@ -1,7 +1,14 @@
 import { Notice, Plugin, WorkspaceLeaf, debounce } from "obsidian";
+import { ConnectionManager } from "./connection";
 import { PlayerSnapshot, PlayerStore } from "./player";
-import { historyConnection, type HistorySnapshot } from "./history";
-import { DEFAULT_SETTINGS, StereoSettings, StereoSettingTab } from "./settings";
+import { historyConnection, legacyHistoryConnection, type HistorySnapshot } from "./history";
+import {
+	DEFAULT_SETTINGS,
+	StereoSettings,
+	StereoSettingTab,
+	migrateSettings,
+} from "./settings";
+import { normalizeServerConfig, type ServerConfig } from "./servers";
 import {
 	ShareCreateModal,
 	SharesModal,
@@ -20,7 +27,11 @@ interface StereoData {
 
 export default class StereoPlugin extends Plugin {
 	settings: StereoSettings = { ...DEFAULT_SETTINGS };
-	client: SubsonicClient = new SubsonicClient(() => this.settings);
+	connection: ConnectionManager = new ConnectionManager(() => this.settings);
+	client: SubsonicClient = new SubsonicClient(
+		() => this.settings,
+		this.connection
+	);
 	player: PlayerStore = new PlayerStore(this.client, () => this.settings);
 
 	private playerState: PlayerSnapshot | undefined;
@@ -35,6 +46,8 @@ export default class StereoPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		await this.loadDataFile();
+		this.connection.setProbe((url) => this.client.probe(url));
+		this.connection.start();
 
 		if (this.playerState) {
 			this.player.restore(this.playerState);
@@ -73,6 +86,7 @@ export default class StereoPlugin extends Plugin {
 	onunload(): void {
 		// Per Obsidian guidelines: do not detach leaves of our view type here.
 		// Registered events/DOM listeners are cleaned up automatically.
+		this.connection.stop();
 		this.player.destroy();
 		this.savePlayerState.cancel();
 		void this.saveAll();
@@ -129,6 +143,62 @@ export default class StereoPlugin extends Plugin {
 		new SharesModal(this.app, this).open();
 	}
 
+	/** Switch the active server and reload the views. */
+	async setActiveServer(id: string): Promise<void> {
+		if (
+			!this.settings.servers.some((server) => server.id === id) ||
+			id === this.settings.activeServerId
+		) {
+			return;
+		}
+		this.settings.activeServerId = id;
+		this.connection.reset();
+		this.player.syncConnection();
+		await this.saveAll();
+		this.refreshAllViews();
+	}
+
+	/** Insert or update a server configuration. */
+	async upsertServer(server: ServerConfig): Promise<void> {
+		const normalized = normalizeServerConfig(server);
+		const index = this.settings.servers.findIndex(
+			(entry) => entry.id === normalized.id
+		);
+		if (index >= 0) this.settings.servers[index] = normalized;
+		else this.settings.servers.push(normalized);
+		if (
+			!this.settings.servers.some(
+				(entry) => entry.id === this.settings.activeServerId
+			)
+		) {
+			this.settings.activeServerId = this.settings.servers[0]?.id ?? "";
+		}
+		this.connection.reset();
+		this.player.syncConnection();
+		await this.saveAll();
+		this.refreshAllViews();
+	}
+
+	/** Remove a server, selecting another one when the active one is deleted. */
+	async deleteServer(id: string): Promise<void> {
+		this.settings.servers = this.settings.servers.filter(
+			(server) => server.id !== id
+		);
+		if (this.settings.activeServerId === id) {
+			this.settings.activeServerId = this.settings.servers[0]?.id ?? "";
+		}
+		this.connection.reset();
+		this.player.syncConnection();
+		await this.saveAll();
+		this.refreshAllViews();
+	}
+
+	private refreshAllViews(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) leaf.view.reloadForConnection();
+		}
+	}
+
 	/** Resolve the current queue to its album/playlist source or a snapshot. */
 	async openShareQueue(): Promise<void> {
 		const state = this.player.getState();
@@ -176,7 +246,7 @@ export default class StereoPlugin extends Plugin {
 
 	private async loadDataFile(): Promise<void> {
 		const raw = (await this.loadData()) as
-			| (Partial<StereoData> & Partial<StereoSettings>)
+			| (Partial<StereoData> & Record<string, unknown>)
 			| null;
 		if (!raw) {
 			this.player.history.restore(undefined, historyConnection(this.settings));
@@ -184,15 +254,31 @@ export default class StereoPlugin extends Plugin {
 		}
 
 		// Current shape: { settings, playerState, history }. Legacy shape: flat settings.
-		const settings = raw.settings ?? raw;
-		this.settings = { ...DEFAULT_SETTINGS, ...settings };
+		const settingsRaw = (raw.settings ?? raw) as Record<string, unknown>;
+		this.settings = {
+			...DEFAULT_SETTINGS,
+			...migrateSettings(settingsRaw),
+		};
 		const connection = historyConnection(this.settings);
+		const legacyConnection = legacyHistoryConnection(this.settings);
 		// A server URL or username saved mid-edit still carries the previous
 		// account's queue; the history snapshot names the account it belongs to.
 		// Data from before history support has no snapshot and keeps its queue.
-		const savedConnection = (raw.history as { connection?: unknown } | undefined)?.connection;
-		this.playerState = savedConnection === undefined || savedConnection === connection ? raw.playerState : undefined;
-		this.player.history.restore(raw.history, connection);
+		const historyRaw = raw.history as
+			| { connection?: unknown; entries?: unknown }
+			| undefined;
+		const savedConnection = historyRaw?.connection;
+		const sameAccount =
+			savedConnection === connection || savedConnection === legacyConnection;
+		this.playerState =
+			savedConnection === undefined || sameAccount
+				? raw.playerState
+				: undefined;
+		const historySnapshot =
+			sameAccount && historyRaw
+				? { ...historyRaw, connection }
+				: raw.history;
+		this.player.history.restore(historySnapshot, connection);
 	}
 
 	async saveSettings(): Promise<void> {

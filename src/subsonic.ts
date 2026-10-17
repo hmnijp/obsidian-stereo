@@ -1,5 +1,7 @@
 import { requestUrl, type RequestUrlResponse } from "obsidian";
+import type { ConnectionManager } from "./connection";
 import { md5Hex } from "./md5";
+import { activeServer, serverApiUrl, type ServerConfig } from "./servers";
 import type { StereoSettings } from "./settings";
 
 /**
@@ -179,9 +181,29 @@ function starParams(target: StarTarget): RequestParams {
 
 export class SubsonicClient {
 	private getSettings: () => StereoSettings;
+	private connection: ConnectionManager | null;
 
-	constructor(getSettings: () => StereoSettings) {
+	constructor(
+		getSettings: () => StereoSettings,
+		connection: ConnectionManager | null = null
+	) {
 		this.getSettings = getSettings;
+		this.connection = connection;
+	}
+
+	private server(): ServerConfig | null {
+		return activeServer(this.getSettings());
+	}
+
+	private requireServer(): ServerConfig {
+		const server = this.server();
+		if (!server || !serverApiUrl(server) || !server.username || !server.password) {
+			throw new SubsonicError(
+				"config",
+				"Configure a server URL, username, and password first."
+			);
+		}
+		return server;
 	}
 
 	/**
@@ -190,23 +212,26 @@ export class SubsonicClient {
 	 * Throws a `config` error when settings are incomplete.
 	 */
 	buildUrl(endpoint: string, params: RequestParams = {}): string {
-		const { serverUrl, username, password } = this.getSettings();
-		if (!serverUrl || !username || !password) {
-			throw new SubsonicError(
-				"config",
-				"Server URL, username, and password must all be set."
-			);
-		}
+		const server = this.requireServer();
+		const base = this.connection?.currentUrl() || serverApiUrl(server);
+		return this.buildUrlFor(server, base, endpoint, params);
+	}
 
-		const base = serverUrl.replace(/\/+$/, "");
+	private buildUrlFor(
+		server: ServerConfig,
+		baseUrl: string,
+		endpoint: string,
+		params: RequestParams = {}
+	): string {
+		const base = baseUrl.replace(/\/+$/, "");
 		const saltBytes = window.crypto.getRandomValues(new Uint8Array(8));
 		const salt = [...saltBytes]
 			.map((byte) => byte.toString(16).padStart(2, "0"))
 			.join("");
-		const token = md5Hex(password + salt);
+		const token = md5Hex(server.password + salt);
 
 		const query = new URLSearchParams({
-			u: username,
+			u: server.username,
 			t: token,
 			s: salt,
 			v: PROTOCOL_VERSION,
@@ -223,14 +248,81 @@ export class SubsonicClient {
 		return `${base}/rest/${endpoint}.view?${query.toString()}`;
 	}
 
+	/** Lightweight reachability probe; HTTP success is enough, auth is ignored. */
+	async probe(baseUrl: string): Promise<boolean> {
+		const server = this.server();
+		if (!server || !baseUrl) return false;
+		try {
+			const response = await requestUrl({
+				url: this.buildUrlFor(server, baseUrl, "ping"),
+				throw: false,
+			});
+			return response.status >= 200 && response.status < 300;
+		} catch {
+			return false;
+		}
+	}
+
 	/** Perform a JSON request and unwrap the Subsonic envelope. */
 	private async request(
 		endpoint: string,
 		params: RequestParams = {},
 		options: { method?: "GET" | "POST" } = {}
 	): Promise<SubsonicEnvelope["subsonic-response"]> {
+		const server = this.requireServer();
+		const current = this.connection?.currentUrl() || serverApiUrl(server);
+		const fallback = this.connection?.fallbackUrl() ?? null;
+		const bases = [current, fallback].filter(
+			(value, index, all): value is string =>
+				!!value && all.indexOf(value) === index
+		);
+
+		let lastError: SubsonicError | null = null;
+		for (const base of bases) {
+			try {
+				const result = await this.requestAt(
+					server,
+					base,
+					endpoint,
+					params,
+					options
+				);
+				this.connection?.noteRequest(base, true);
+				return result;
+			} catch (error) {
+				if (!(error instanceof SubsonicError)) throw error;
+				if (error.kind === "auth" || error.kind === "server") {
+					this.connection?.noteRequest(base, true);
+					throw error;
+				}
+				this.connection?.noteRequest(base, error.code !== undefined);
+				lastError = error;
+				const retryable =
+					error.code === undefined ||
+					(error.code >= 500 && error.code !== 501);
+				if (!retryable) throw error;
+			}
+		}
+		throw (
+			lastError ??
+			new SubsonicError("unreachable", "Could not reach the server.")
+		);
+	}
+
+	private async requestAt(
+		server: ServerConfig,
+		baseUrl: string,
+		endpoint: string,
+		params: RequestParams,
+		options: { method?: "GET" | "POST" }
+	): Promise<SubsonicEnvelope["subsonic-response"]> {
 		const method = options.method ?? "GET";
-		const url = this.buildUrl(endpoint, method === "POST" ? {} : params);
+		const url = this.buildUrlFor(
+			server,
+			baseUrl,
+			endpoint,
+			method === "POST" ? {} : params
+		);
 
 		let formBody: string | undefined;
 		if (method === "POST") {
@@ -517,6 +609,29 @@ export class SubsonicClient {
 	/** Remove a public share link. */
 	async deleteShare(id: string): Promise<void> {
 		await this.request("deleteShare", { id });
+	}
+
+	/**
+	 * Change an existing share. Omitted fields are left untouched by Navidrome
+	 * 0.64+; sending an empty description clears it.
+	 */
+	async updateShare(
+		id: string,
+		changes: {
+			description?: string;
+			expiresAt?: Date;
+			downloadable?: boolean;
+		}
+	): Promise<void> {
+		const params: RequestParams = { id };
+		if (changes.description !== undefined) {
+			params.description = changes.description;
+		}
+		if (changes.expiresAt) params.expires = changes.expiresAt.getTime();
+		if (changes.downloadable !== undefined) {
+			params.downloadable = String(changes.downloadable);
+		}
+		await this.request("updateShare", params);
 	}
 
 	/**

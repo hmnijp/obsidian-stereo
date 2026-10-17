@@ -191,6 +191,17 @@ export class LibraryPane extends Component {
 		}
 	}
 
+	/** Drop cached lists and rebuild after switching servers. */
+	reload(): void {
+		this.albums = null;
+		this.albumsExhausted = false;
+		this.artistIndexes = null;
+		this.playlists = null;
+		this.stations = null;
+		this.stack = [{ kind: "root" }];
+		this.render();
+	}
+
 	/** Show or hide share-related controls without rebuilding the pane. */
 	setSharingEnabled(enabled: boolean): void {
 		this.shareButton.toggleClass("stereo-hidden", !enabled);

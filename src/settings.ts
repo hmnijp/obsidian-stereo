@@ -6,6 +6,16 @@ import {
 	type SettingDefinitionItem,
 } from "obsidian";
 import type StereoPlugin from "./main";
+import { ConfirmModal, ServerEditModal } from "./modals";
+import {
+	activeServer,
+	connectionModeLabel,
+	createServerId,
+	normalizeServerConfig,
+	serverApiUrl,
+	serverLabel,
+	type ServerConfig,
+} from "./servers";
 import { SubsonicError } from "./subsonic";
 
 /** What left-clicking a track row in the library does. */
@@ -82,9 +92,14 @@ export const NOW_PLAYING_VIEWS: {
 ];
 
 export interface StereoSettings {
-	serverUrl: string;
-	username: string;
-	password: string;
+	servers: ServerConfig[];
+	activeServerId: string;
+	/** Legacy single-server fields; only used while migrating old data. */
+	serverUrl?: string;
+	username?: string;
+	password?: string;
+	/** Legacy global share base; migrated into the first ServerConfig. */
+	shareBaseUrl?: string;
 	trackClickAction: TrackClickAction;
 	/** Report plays back to the server so play counts stay accurate. */
 	scrobbleEnabled: boolean;
@@ -94,8 +109,6 @@ export interface StereoSettings {
 	contextualCopyButtons: boolean;
 	/** Show share actions and the share-link manager. */
 	sharingEnabled: boolean;
-	/** Base URL used for public share links; empty falls back to serverUrl. */
-	shareBaseUrl: string;
 	/** Preselected lifetime for new share links. */
 	shareDefaultTtl: ShareTtlPreset;
 	/** Initial state of the Allow downloads checkbox. */
@@ -120,15 +133,13 @@ export interface StereoSettings {
 }
 
 export const DEFAULT_SETTINGS: StereoSettings = {
-	serverUrl: "",
-	username: "",
-	password: "",
+	servers: [],
+	activeServerId: "",
 	trackClickAction: "play",
 	scrobbleEnabled: true,
 	volumeControl: true,
 	contextualCopyButtons: true,
 	sharingEnabled: true,
-	shareBaseUrl: "",
 	shareDefaultTtl: "7d",
 	shareDownloadsByDefault: false,
 	stationBatchSize: 30,
@@ -144,6 +155,73 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	searchAlbumCount: 4,
 	searchSongCount: 10,
 };
+
+/**
+ * Convert legacy flat server fields into the multi-server shape. Existing
+ * history/queue hashes stay valid because they use the WAN URL and username.
+ */
+export function migrateSettings(
+	raw: Record<string, unknown>
+): Partial<StereoSettings> {
+	const rawServers = Array.isArray(raw.servers) ? raw.servers : [];
+	const servers = rawServers
+		.filter((value): value is Record<string, unknown> => !!value && typeof value === "object")
+		.map((value) => normalizeServerConfig(value));
+	if (servers.length > 0) {
+		const activeServerId =
+			typeof raw.activeServerId === "string" &&
+			servers.some((server) => server.id === raw.activeServerId)
+				? raw.activeServerId
+				: servers[0]?.id ?? "";
+		const {
+			serverUrl: _serverUrl,
+			username: _username,
+			password: _password,
+			shareBaseUrl: _shareBaseUrl,
+			...rest
+		} = raw;
+		return {
+			...(rest as Partial<StereoSettings>),
+			servers,
+			activeServerId,
+		};
+	}
+
+	const legacyUrl = typeof raw.serverUrl === "string" ? raw.serverUrl.trim() : "";
+	const legacyUser = typeof raw.username === "string" ? raw.username : "";
+	const legacyPass = typeof raw.password === "string" ? raw.password : "";
+	if (!legacyUrl && !legacyUser && !legacyPass) {
+		return {
+			...(raw as Partial<StereoSettings>),
+			servers: [],
+			activeServerId: "",
+		};
+	}
+
+	const legacy = normalizeServerConfig({
+		id: createServerId(),
+		name: "Server",
+		wanUrl: legacyUrl,
+		lanUrl: "",
+		shareBaseUrl:
+			typeof raw.shareBaseUrl === "string" ? raw.shareBaseUrl : "",
+		username: legacyUser,
+		password: legacyPass,
+		connectionMode: "auto",
+	});
+	const {
+		serverUrl: _serverUrl,
+		username: _username,
+		password: _password,
+		shareBaseUrl: _shareBaseUrl,
+		...rest
+	} = raw;
+	return {
+		...(rest as Partial<StereoSettings>),
+		servers: [legacy],
+		activeServerId: legacy.id,
+	};
+}
 
 /** Search delay presets — users think in feel, not milliseconds. */
 const SEARCH_SPEEDS: ReadonlyArray<{ ms: number; label: string }> = [
@@ -183,7 +261,6 @@ export class StereoSettingTab extends PluginSettingTab {
 	private connectionState: ConnectionState = "untested";
 	private connectionMessage = "Not tested yet.";
 	private statusEl: HTMLElement | null = null;
-	private autoTestTimer: number | null = null;
 	/** Set while the lyrics preview row is mounted; restyles it in place. */
 	private applyLyricsPreview: (() => void) | null = null;
 
@@ -201,20 +278,9 @@ export class StereoSettingTab extends PluginSettingTab {
 				heading: "Server",
 				items: [
 					{
-						name: "Server URL",
-						desc: "Address of your Navidrome or Subsonic-compatible server.",
-						render: (setting) =>
-							this.renderConnectionField(setting, "serverUrl", "https://music.example.com"),
-					},
-					{
-						name: "Username",
-						desc: "The account used to sign in.",
-						render: (setting) => this.renderConnectionField(setting, "username"),
-					},
-					{
-						name: "Password",
-						desc: "Stored in plain text in this plugin's data file inside your vault.",
-						render: (setting) => this.renderPassword(setting),
+						name: "",
+						searchable: false,
+						render: (setting) => this.renderServers(setting),
 					},
 					{
 						name: "Connection status",
@@ -253,13 +319,8 @@ export class StereoSettingTab extends PluginSettingTab {
 				items: [
 					{
 						name: "Share links",
-						desc: "Show Share actions in context menus and the share-link manager. Requires a Navidrome server with sharing enabled.",
+						desc: "Show Share actions in context menus and the share-link manager. Share URL and WAN/LAN addresses are configured per server.",
 						control: { type: "toggle", key: "sharingEnabled" },
-					},
-					{
-						name: "Public link base URL (WAN)",
-						desc: "Base URL used for share links. Leave empty to use the server URL. Set this when Obsidian connects over LAN but links must work outside your network.",
-						render: (setting) => this.renderShareBaseUrl(setting),
 					},
 					{
 						name: "Default link lifetime",
@@ -449,66 +510,119 @@ export class StereoSettingTab extends PluginSettingTab {
 		if (key === "lyricsAlign") this.applyLyricsPreview?.();
 	}
 
-	hide(): void {
-		if (this.autoTestTimer !== null) {
-			window.clearTimeout(this.autoTestTimer);
-			this.autoTestTimer = null;
-		}
-		// Closing settings with a connection field still focused ends the edit too.
-		void this.plugin.commitConnection();
-	}
-
 	// ------------------------------------------------------------------
 	// Connection
 
-	/** Server URL and username save as typed, but the account switch (which
-	 * clears the old account's history and queue) waits until the field is left. */
-	private renderConnectionField(
-		setting: Setting,
-		key: "serverUrl" | "username",
-		placeholder = ""
-	): void {
-		setting.addText((text) => {
-			text
-				.setPlaceholder(placeholder)
-				.setValue(this.plugin.settings[key])
-				.onChange(async (value) => {
-					this.plugin.settings[key] = value.trim();
-					await this.plugin.saveSettings();
-					this.queueAutoTest();
-				});
-			text.inputEl.addEventListener("blur", () => {
-				void this.plugin.commitConnection();
+	private renderServers(setting: Setting): void {
+		setting.settingEl.empty();
+		setting.settingEl.addClass("stereo-settings-servers");
+		const list = setting.settingEl.createDiv({ cls: "stereo-server-list" });
+		const servers = this.plugin.settings.servers;
+
+		if (servers.length === 0) {
+			list.createDiv({
+				cls: "stereo-share-status",
+				text: "No servers yet. Add one to get started.",
 			});
+		} else {
+			for (const server of servers) this.serverRow(list, server);
+		}
+
+		const add = setting.settingEl.createEl("button", {
+			cls: "stereo-server-add",
+			text: "Add server…",
+		});
+		add.addEventListener("click", () => this.editServer(null));
+	}
+
+	private serverRow(parent: HTMLElement, server: ServerConfig): void {
+		const active = server.id === this.plugin.settings.activeServerId;
+		const row = parent.createDiv({ cls: "stereo-server-row" });
+		if (active) row.addClass("stereo-server-row-active");
+
+		const radio = row.createEl("input", {
+			cls: "stereo-server-radio",
+			attr: {
+				type: "radio",
+				name: "stereo-active-server",
+				"aria-label": `Use ${serverLabel(server)}`,
+			},
+		});
+		radio.checked = active;
+		radio.addEventListener("change", () => {
+			if (!radio.checked) return;
+			void this.selectServer(server);
+		});
+
+		const info = row.createDiv({ cls: "stereo-server-row-main" });
+		const title = info.createDiv({ cls: "stereo-server-row-title" });
+		title.setText(serverLabel(server));
+		const meta = info.createDiv({ cls: "stereo-share-row-meta" });
+		meta.setText(
+			[
+				server.wanUrl ? `WAN: ${server.wanUrl}` : "",
+				server.lanUrl ? `LAN: ${server.lanUrl}` : "",
+				server.shareBaseUrl
+					? `Share: ${server.shareBaseUrl}`
+					: "Share: WAN",
+				server.username ? `User: ${server.username}` : "",
+				connectionModeLabel(server.connectionMode),
+			]
+				.filter(Boolean)
+				.join(" · ")
+		);
+
+		const actions = row.createDiv({ cls: "stereo-share-row-actions" });
+		this.serverActionIcon(actions, "pencil", "Edit server", () => {
+			this.editServer(server);
+		});
+		this.serverActionIcon(actions, "trash-2", "Delete server", () => {
+			new ConfirmModal(
+				this.app,
+				"Delete server",
+				`Delete "${serverLabel(server)}" from Stereo?`,
+				"Delete",
+				() => {
+					void this.plugin.deleteServer(server.id).then(() => {
+						this.display();
+						void this.testConnection();
+					});
+				}
+			).open();
 		});
 	}
 
-	/** Masked text field with an eye toggle; the declarative controls have no
-	 * password type, so this row stays imperative. */
-	private renderPassword(setting: Setting): void {
-		setting
-			.addText((text) => {
-				text.inputEl.type = "password";
-				text.setValue(this.plugin.settings.password).onChange(
-					async (value) => {
-						this.plugin.settings.password = value;
-						await this.plugin.saveSettings();
-						this.queueAutoTest();
-					}
-				);
-			})
-			.addExtraButton((button) => {
-				button.setIcon("eye").setTooltip("Show password");
-				button.onClick(() => {
-					const input =
-						button.extraSettingsEl.parentElement?.querySelector("input");
-					if (!input) return;
-					const reveal = input.type === "password";
-					input.type = reveal ? "text" : "password";
-					button.setIcon(reveal ? "eye-off" : "eye");
-					button.setTooltip(reveal ? "Hide password" : "Show password");
-				});
+	private serverActionIcon(
+		parent: HTMLElement,
+		icon: string,
+		label: string,
+		onClick: () => void
+	): void {
+		const button = parent.createEl("button", {
+			cls: "stereo-button clickable-icon",
+			attr: { "aria-label": label, title: label },
+		});
+		setIcon(button, icon);
+		button.addEventListener("click", onClick);
+	}
+
+	private async selectServer(server: ServerConfig): Promise<void> {
+		await this.plugin.setActiveServer(server.id);
+		this.connectionState = "untested";
+		this.connectionMessage = "Not tested yet.";
+		this.display();
+		void this.testConnection();
+	}
+
+	private editServer(server: ServerConfig | null): void {
+		new ServerEditModal(this.app, this.plugin, server, (next) => {
+			void this.plugin.upsertServer(next).then(() => {
+				this.connectionState = "untested";
+				this.connectionMessage = "Not tested yet.";
+				this.display();
+				void this.testConnection();
 			});
+		}).open();
 	}
 
 	/** Live status dot + message + retest, in place of a normal setting row. */
@@ -551,29 +665,17 @@ export class StereoSettingTab extends PluginSettingTab {
 	}
 
 	private hasCredentials(): boolean {
-		const { serverUrl, username, password } = this.plugin.settings;
-		return !!(serverUrl && username && password);
-	}
-
-	/** Re-test shortly after the user stops editing credentials. */
-	private queueAutoTest(): void {
-		this.connectionState = "untested";
-		this.connectionMessage = "Not tested yet.";
-		this.updateStatusUi();
-		if (this.autoTestTimer !== null) window.clearTimeout(this.autoTestTimer);
-		if (!this.hasCredentials()) return;
-		this.autoTestTimer = window.setTimeout(() => {
-			this.autoTestTimer = null;
-			void this.testConnection();
-		}, 900);
+		const server = activeServer(this.plugin.settings);
+		return !!(server?.username && server.password && serverApiUrl(server));
 	}
 
 	private async testConnection(): Promise<void> {
 		if (this.connectionState === "testing") return;
-		if (!this.hasCredentials()) {
+		const server = activeServer(this.plugin.settings);
+		if (!server || !this.hasCredentials()) {
 			this.connectionState = "error";
 			this.connectionMessage =
-				"Fill in the server URL, username, and password first.";
+				"Configure a server URL, username, and password first.";
 			this.updateStatusUi();
 			return;
 		}
@@ -584,32 +686,20 @@ export class StereoSettingTab extends PluginSettingTab {
 
 		try {
 			const info = await this.plugin.client.ping();
-			const server = describeServer(info);
+			const name = describeServer(info);
+			const via = this.plugin.connection.activeKind();
 			this.connectionState = "ok";
-			this.connectionMessage = `Connected to ${server} as ${this.plugin.settings.username}.`;
+			this.connectionMessage = `Connected to ${name} as ${server.username}${
+				via ? ` via ${via.toUpperCase()}` : ""
+			}.`;
 		} catch (error) {
 			this.connectionState = "error";
 			this.connectionMessage = describeConnectionError(
 				error,
-				this.plugin.settings.serverUrl
+				serverApiUrl(server)
 			);
 		}
 		this.updateStatusUi();
-	}
-
-	// ------------------------------------------------------------------
-	// Sharing
-
-	private renderShareBaseUrl(setting: Setting): void {
-		setting.addText((text) => {
-			text
-				.setPlaceholder("https://music.example.com")
-				.setValue(this.plugin.settings.shareBaseUrl)
-				.onChange(async (value) => {
-					this.plugin.settings.shareBaseUrl = value.trim();
-					await this.plugin.saveSettings();
-				});
-		});
 	}
 
 	// ------------------------------------------------------------------

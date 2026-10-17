@@ -60,6 +60,36 @@ const share = await bundle("src/share.ts", [
 	},
 ]);
 
+test("normalizeShareUrl keeps a server-returned path outside the proxy prefix", () => {
+	assert.equal(
+		share.normalizeShareUrl(
+			"https://hmnijpreg.ddns.net/navidrome/share/6QEFU9d1dr",
+			"6QEFU9d1dr",
+			"",
+			"https://hmnijpreg.ddns.net/octo/",
+		),
+		"https://hmnijpreg.ddns.net/navidrome/share/6QEFU9d1dr",
+	);
+	assert.equal(
+		share.normalizeShareUrl(
+			"https://hmnijpreg.ddns.net/octo/navidrome/share/6QEFU9d1dr",
+			"6QEFU9d1dr",
+			"https://hmnijpreg.ddns.net/navidrome",
+			"https://hmnijpreg.ddns.net/octo/",
+		),
+		"https://hmnijpreg.ddns.net/navidrome/share/6QEFU9d1dr",
+	);
+	assert.equal(
+		share.normalizeShareUrl(
+			"http://192.168.0.123/navidrome/share/id",
+			"id",
+			"",
+			"https://wan.example/octo",
+		),
+		"https://wan.example/navidrome/share/id",
+	);
+});
+
 test("normalizeShareUrl rewrites LAN and relative links to the WAN base", () => {
 	assert.equal(
 		share.normalizeShareUrl(
@@ -218,6 +248,7 @@ test("ambiguous playlists and radio entries never leak into the snapshot", async
 });
 
 const subsonic = await bundle("src/subsonic.ts");
+const connectionModule = await bundle("src/connection.ts");
 globalThis.window = globalThis;
 const settings = {
 	serverUrl: "https://music.example.com",
@@ -304,6 +335,30 @@ test("getShares accepts both single objects and arrays, and deleteShare targets 
 	assert.equal(url.searchParams.get("id"), "abc");
 });
 
+test("updateShare sends only the requested fields", async () => {
+	respondWith(null);
+	await client.updateShare("abc", {
+		description: "New description",
+		downloadable: true,
+	});
+	let url = new URL(globalThis.__lastRequest.url);
+	assert.equal(url.pathname, "/rest/updateShare.view");
+	assert.equal(url.searchParams.get("id"), "abc");
+	assert.equal(url.searchParams.get("description"), "New description");
+	assert.equal(url.searchParams.get("downloadable"), "true");
+	assert.equal(url.searchParams.has("expires"), false);
+
+	const expiresAt = new Date("2030-01-02T03:04:05.000Z");
+	await client.updateShare("abc", {
+		description: "",
+		expiresAt,
+	});
+	url = new URL(globalThis.__lastRequest.url);
+	assert.equal(url.searchParams.get("description"), "");
+	assert.equal(url.searchParams.get("expires"), String(expiresAt.getTime()));
+	assert.equal(url.searchParams.has("downloadable"), false);
+});
+
 test("HTTP 501 reports sharing as unavailable", async () => {
 	globalThis.__stereoRequest = async () => ({
 		status: 501,
@@ -314,4 +369,52 @@ test("HTTP 501 reports sharing as unavailable", async () => {
 		() => client.createShare({ ids: ["one"] }),
 		(error) => error.kind === "unreachable" && error.code === 501
 	);
+});
+
+test("SubsonicClient falls back from LAN to WAN and remembers the failure", async () => {
+	const lan = "https://lan.invalid/octo";
+	const wan = "https://wan.invalid";
+	const serverSettings = {
+		servers: [
+			{
+				id: "s1",
+				name: "Test",
+				wanUrl: wan,
+				lanUrl: lan,
+				shareBaseUrl: "",
+				username: "listener",
+				password: "secret",
+				connectionMode: "auto",
+			},
+		],
+		activeServerId: "s1",
+	};
+	const manager = new connectionModule.ConnectionManager(
+		() => serverSettings
+	);
+	const fallbackClient = new subsonic.SubsonicClient(
+		() => serverSettings,
+		manager
+	);
+	const urls = [];
+	globalThis.__stereoRequest = async (options) => {
+		urls.push(options.url);
+		if (options.url.startsWith(lan)) throw new Error("LAN is down");
+		return {
+			status: 200,
+			headers: {},
+			json: {
+				"subsonic-response": {
+					status: "ok",
+					version: "1.16.1",
+					type: "navidrome",
+				},
+			},
+		};
+	};
+	const info = await fallbackClient.ping();
+	assert.equal(info.type, "navidrome");
+	assert.ok(urls[0].startsWith(lan));
+	assert.ok(urls[1].startsWith(wan));
+	assert.equal(manager.currentUrl(), wan);
 });

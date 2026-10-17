@@ -9,6 +9,7 @@ import {
 import type StereoPlugin from "./main";
 import { ConfirmModal } from "./modals";
 import type { QueueOrigin } from "./player";
+import { activeServer } from "./servers";
 import { SHARE_TTL_PRESETS, type ShareTtlPreset } from "./settings";
 import {
 	SubsonicError,
@@ -209,44 +210,88 @@ export async function resolveQueueShareTarget(
 	);
 }
 
-/** Build a public URL from the WAN base, preserving any base path. */
+function parseBase(raw: string): URL | null {
+	const trimmed = raw.trim().replace(/\/+$/, "");
+	if (!trimmed) return null;
+	const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)
+		? trimmed
+		: `https://${trimmed}`;
+	try {
+		return new URL(withScheme);
+	} catch {
+		return null;
+	}
+}
+
+function isLocalHost(hostname: string): boolean {
+	const host = hostname.toLowerCase();
+	if (
+		host === "localhost" ||
+		host === "127.0.0.1" ||
+		host === "0.0.0.0" ||
+		host === "::1" ||
+		host.endsWith(".local")
+	) {
+		return true;
+	}
+	if (/^10\./.test(host)) return true;
+	if (/^192\.168\./.test(host)) return true;
+	const match = /^172\.(\d+)\./.exec(host);
+	if (match) {
+		const second = Number(match[1]);
+		if (second >= 16 && second <= 31) return true;
+	}
+	return false;
+}
+
+/**
+ * Build a public share URL.
+ *
+ * An explicit per-server share base is authoritative and always produces
+ * `<base>/share/<id>`. Without one we trust the path returned by Navidrome
+ * (important behind reverse-proxy prefixes) and only rewrite local origins to
+ * the server's WAN origin.
+ */
 export function normalizeShareUrl(
 	rawUrl: string | undefined,
 	id: string,
 	shareBaseUrl: string,
-	serverUrl: string
+	wanUrl: string
 ): string {
 	const raw = rawUrl?.trim() ?? "";
-	const baseRaw = (shareBaseUrl.trim() || serverUrl.trim()).replace(/\/+$/, "");
-	const baseInput = baseRaw && !/^[a-z][a-z0-9+.-]*:\/\//i.test(baseRaw)
-		? `https://${baseRaw}`
-		: baseRaw;
-
-	let base: URL;
-	try {
-		base = new URL(baseInput);
-	} catch {
-		return raw || `${baseInput}/share/${encodeURIComponent(id)}`;
+	const explicit = parseBase(shareBaseUrl);
+	if (explicit) {
+		const basePath = explicit.pathname
+			.replace(/\/+$/, "")
+			.replace(/\/share$/, "");
+		return `${explicit.origin}${basePath}/share/${encodeURIComponent(id)}`;
 	}
 
-	const basePath = base.pathname.replace(/\/+$/, "");
-	const withBase = (pathname: string): string => {
-		const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
-		if (basePath && path !== basePath && !path.startsWith(`${basePath}/`)) {
-			return `${basePath}${path}`;
-		}
-		return path;
-	};
+	const fallback = parseBase(wanUrl);
+	if (!fallback) {
+		return raw || `${wanUrl.replace(/\/+$/, "")}/share/${encodeURIComponent(id)}`;
+	}
+	const fallbackPath = fallback.pathname.replace(/\/+$/, "");
 
 	if (!raw) {
-		return `${base.origin}${withBase(`/share/${encodeURIComponent(id)}`)}`;
+		return `${fallback.origin}${fallbackPath}/share/${encodeURIComponent(id)}`;
 	}
 
 	try {
-		const parsed = new URL(raw, `${base.origin}${basePath || ""}/`);
-		return `${base.origin}${withBase(parsed.pathname)}${parsed.search}${parsed.hash}`;
+		const parsed = new URL(raw, `${fallback.origin}${fallbackPath}/`);
+		const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+		const local = isLocalHost(parsed.hostname);
+		const sameHost = parsed.hostname === fallback.hostname;
+
+		if (absolute && !local && !(sameHost && parsed.protocol !== fallback.protocol)) {
+			return parsed.toString();
+		}
+		if (!absolute && !raw.startsWith("/")) {
+			return parsed.toString();
+		}
+		return `${fallback.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
 	} catch {
-		return `${base.origin}${withBase(`/share/${encodeURIComponent(id)}`)}`;
+		return `${fallback.origin}${fallbackPath}/share/${encodeURIComponent(id)}`;
 	}
 }
 
@@ -300,6 +345,20 @@ async function copyText(text: string, notice: string): Promise<void> {
 	} catch {
 		new Notice("Could not copy to the clipboard.");
 	}
+}
+
+function shareUrlFor(plugin: StereoPlugin, share: ShareLink): string {
+	const server = activeServer(plugin.settings);
+	return normalizeShareUrl(
+		share.url,
+		share.id,
+		server?.shareBaseUrl ?? "",
+		server?.wanUrl || server?.lanUrl || ""
+	);
+}
+
+function activeUsername(plugin: StereoPlugin): string {
+	return activeServer(plugin.settings)?.username ?? "";
 }
 
 /** Create a link for one item or a queue snapshot. */
@@ -483,12 +542,7 @@ export class ShareCreateModal extends Modal {
 				"aria-label": "Share link",
 			},
 		});
-		input.value = normalizeShareUrl(
-			share.url,
-			share.id,
-			this.plugin.settings.shareBaseUrl,
-			this.plugin.settings.serverUrl
-		);
+		input.value = shareUrlFor(this.plugin, share);
 		input.addEventListener("focus", () => input.select());
 
 		const actions = result.createDiv({ cls: "stereo-share-actions" });
@@ -514,6 +568,153 @@ export class ShareCreateModal extends Modal {
 		});
 		if (this.target.snapshot) {
 			details.createDiv({ text: "Snapshot of the current queue." });
+		}
+	}
+}
+
+/** Edit an existing share link. */
+export class ShareEditModal extends Modal {
+	private plugin: StereoPlugin;
+	private share: ShareLink;
+	private onSaved: () => void;
+	private description: string;
+	private initialDescription: string;
+	private expiry: string;
+	private initialExpiry: string;
+	private downloads: "keep" | "allow" | "deny" = "keep";
+	private errorEl!: HTMLElement;
+	private saveButton: ButtonComponent | null = null;
+
+	constructor(
+		app: App,
+		plugin: StereoPlugin,
+		share: ShareLink,
+		onSaved: () => void
+	) {
+		super(app);
+		this.plugin = plugin;
+		this.share = share;
+		this.onSaved = onSaved;
+		this.description = share.description ?? "";
+		this.initialDescription = this.description;
+		const expires = share.expires ? new Date(share.expires) : null;
+		this.expiry =
+			expires && !Number.isNaN(expires.getTime())
+				? toDateTimeLocal(expires)
+				: "";
+		this.initialExpiry = this.expiry;
+	}
+
+	onOpen(): void {
+		this.setTitle("Edit share link");
+		this.contentEl.addClass("stereo-share-modal");
+
+		const summary = this.contentEl.createDiv({ cls: "stereo-share-target" });
+		const icon = summary.createSpan({ cls: "stereo-share-target-icon" });
+		setIcon(icon, "link");
+		const text = summary.createDiv({ cls: "stereo-share-target-text" });
+		text.createDiv({
+			cls: "stereo-share-target-title",
+			text: this.share.description || "Shared item",
+		});
+		text.createDiv({
+			cls: "stereo-share-target-sub",
+			text: shareUrlFor(this.plugin, this.share),
+		});
+
+		new Setting(this.contentEl)
+			.setName("Description")
+			.setDesc("Leave empty to remove the description.")
+			.addText((input) => {
+				input.setValue(this.description).onChange((value) => {
+					this.description = value.trim();
+				});
+			});
+
+		new Setting(this.contentEl)
+			.setName("Expires")
+			.setDesc("Local date and time. Leave unchanged to keep the current expiry.")
+			.addText((input) => {
+				input.inputEl.type = "datetime-local";
+				input.setValue(this.expiry).onChange((value) => {
+					this.expiry = value;
+				});
+			});
+
+		new Setting(this.contentEl)
+			.setName("Downloads")
+			.setDesc("Downloads require Navidrome 0.64+ with downloads enabled.")
+			.addDropdown((dropdown) => {
+				dropdown.addOption("keep", "Keep current");
+				dropdown.addOption("allow", "Allow downloads");
+				dropdown.addOption("deny", "Disable downloads");
+				dropdown.setValue(this.downloads).onChange((value) => {
+					this.downloads = value as "keep" | "allow" | "deny";
+				});
+			});
+
+		this.errorEl = this.contentEl.createDiv({ cls: "stereo-share-error" });
+		const actions = this.contentEl.createDiv({ cls: "stereo-share-actions" });
+		new ButtonComponent(actions)
+			.setButtonText("Cancel")
+			.onClick(() => this.close());
+		this.saveButton = new ButtonComponent(actions)
+			.setButtonText("Save")
+			.setCta()
+			.onClick(() => {
+				void this.save();
+			});
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+
+	private async save(): Promise<void> {
+		const changes: {
+			description?: string;
+			expiresAt?: Date;
+			downloadable?: boolean;
+		} = {};
+
+		if (this.description !== this.initialDescription) {
+			changes.description = this.description;
+		}
+
+		if (this.expiry !== this.initialExpiry) {
+			if (this.expiry.trim()) {
+				const parsed = new Date(this.expiry);
+				if (
+					Number.isNaN(parsed.getTime()) ||
+					parsed.getTime() <= Date.now()
+				) {
+					this.errorEl.setText(
+						"Choose an expiry date in the future, or leave it unchanged."
+					);
+					return;
+				}
+				changes.expiresAt = parsed;
+			} else if (this.initialExpiry.trim()) {
+				this.errorEl.setText(
+					"Navidrome cannot clear an expiry. Choose a new future date."
+				);
+				return;
+			}
+		}
+
+		if (this.downloads === "allow") changes.downloadable = true;
+		if (this.downloads === "deny") changes.downloadable = false;
+
+		this.errorEl.setText("");
+		this.saveButton?.setDisabled(true).setButtonText("Saving…");
+		try {
+			await this.plugin.client.updateShare(this.share.id, changes);
+			new Notice("Share link updated.");
+			this.close();
+			this.onSaved();
+		} catch (error) {
+			this.errorEl.setText(describeShareError(error));
+			this.saveButton?.setDisabled(false).setButtonText("Save");
 		}
 	}
 }
@@ -592,12 +793,7 @@ export class SharesModal extends Modal {
 	}
 
 	private renderRow(share: ShareLink): void {
-		const url = normalizeShareUrl(
-			share.url,
-			share.id,
-			this.plugin.settings.shareBaseUrl,
-			this.plugin.settings.serverUrl
-		);
+		const url = shareUrlFor(this.plugin, share);
 		const expires = share.expires ? new Date(share.expires) : null;
 		const expired = !!expires && expires.getTime() <= Date.now();
 		const row = this.listEl.createDiv({ cls: "stereo-share-row" });
@@ -619,7 +815,7 @@ export class SharesModal extends Modal {
 				: "No expiry",
 			`${share.visitCount ?? 0} visits`,
 		].filter(Boolean);
-		if (share.username && share.username !== this.plugin.settings.username) {
+		if (share.username && share.username !== activeUsername(this.plugin)) {
 			metaParts.push(`by ${share.username}`);
 		}
 		meta.setText(metaParts.join(" · "));
@@ -633,6 +829,11 @@ export class SharesModal extends Modal {
 		});
 		this.iconAction(actions, "external-link", "Open link", () => {
 			window.open(url, "_blank");
+		});
+		this.iconAction(actions, "pencil", "Edit link", () => {
+			new ShareEditModal(this.app, this.plugin, share, () => {
+				void this.load();
+			}).open();
 		});
 		this.iconAction(actions, "trash-2", "Delete link", () => {
 			this.confirmDelete(share);
@@ -655,7 +856,7 @@ export class SharesModal extends Modal {
 
 	private confirmDelete(share: ShareLink): void {
 		const owner =
-			share.username && share.username !== this.plugin.settings.username
+			share.username && share.username !== activeUsername(this.plugin)
 				? ` This link belongs to ${share.username}.`
 				: "";
 		new ConfirmModal(

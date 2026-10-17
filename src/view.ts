@@ -11,9 +11,9 @@ import boomboxSvg from "../boombox.svg";
 import stereoBoomboxSvg from "../stereo-boombox.svg";
 import { getLyrics, type Lyrics } from "./lyrics";
 import { LibraryPane } from "./library";
-import { PlaylistNameModal } from "./modals";
+import { PlaylistNameModal, PlaylistSharePickerModal } from "./modals";
 import { SearchPane } from "./search";
-import { shareTargetForSong } from "./share";
+import { shareTargetForPlaylist, shareTargetForSong } from "./share";
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
 import type { PlayerState } from "./player";
@@ -561,6 +561,13 @@ export class StereoView extends ItemView {
 		this.trackShareButton?.toggleClass("stereo-hidden", !enabled);
 	}
 
+	/** Rebuild library data after the active server changes. */
+	reloadForConnection(): void {
+		this.search?.close();
+		this.library?.reload();
+		this.render(this.plugin.player.getState());
+	}
+
 	/** Switch the active presentation (art shape / visualizer mode). Does not
 	 * re-render — the caller does — so it's safe to call from render() itself. */
 	private setEffectiveView(view: NowPlayingView): void {
@@ -1032,6 +1039,10 @@ export class StereoView extends ItemView {
 				this.plugin.openShare(shareTargetForSong(track));
 			}
 		);
+		this.trackShareButton.setAttribute("aria-haspopup", "menu");
+		this.registerDomEvent(this.trackShareButton, "contextmenu", (event) => {
+			this.showTrackShareMenu(event);
+		});
 
 		this.errorEl = page.createDiv({ cls: "stereo-error" });
 	}
@@ -1344,6 +1355,81 @@ export class StereoView extends ItemView {
 	private clearQueueDropMarker(): void {
 		this.queueDropRow?.removeClass("stereo-queue-drop-before", "stereo-queue-drop-after");
 		this.queueDropRow = null;
+	}
+
+	private showTrackShareMenu(evt: MouseEvent): void {
+		const track = this.plugin.player.getState().track;
+		if (!track || track.streamUrl) return;
+		evt.preventDefault();
+		const menu = new Menu();
+		menu.addItem((item) =>
+			item
+				.setTitle("Share track")
+				.setIcon("music")
+				.onClick(() => {
+					this.plugin.openShare(shareTargetForSong(track));
+				})
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle("Share album")
+				.setIcon("disc")
+				.setDisabled(!track.albumId)
+				.onClick(() => {
+					if (!track.albumId) return;
+					this.plugin.openShare({
+						kind: "album",
+						resourceIds: [track.albumId],
+						title: track.album ?? "Album",
+						subtitle: ["Album", track.artist]
+							.filter(Boolean)
+							.join(" · "),
+					});
+				})
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle("Share artist")
+				.setIcon("user")
+				.setDisabled(!track.artistId)
+				.onClick(() => {
+					if (!track.artistId) return;
+					this.plugin.openShare({
+						kind: "artist",
+						resourceIds: [track.artistId],
+						title: track.artist ?? "Artist",
+						subtitle: "Artist",
+					});
+				})
+		);
+		menu.addItem((item) =>
+			item
+				.setTitle("Share playlist…")
+				.setIcon("list-music")
+				.onClick(() => {
+					void this.pickPlaylistToShare();
+				})
+		);
+		menu.showAtMouseEvent(evt);
+	}
+
+	private async pickPlaylistToShare(): Promise<void> {
+		try {
+			const playlists = await this.plugin.client.getPlaylists();
+			if (playlists.length === 0) {
+				new Notice("No playlists found.");
+				return;
+			}
+			new PlaylistSharePickerModal(
+				this.app,
+				playlists,
+				(playlist) => {
+					this.plugin.openShare(shareTargetForPlaylist(playlist));
+				}
+			).open();
+		} catch {
+			new Notice("Could not load playlists.");
+		}
 	}
 
 	private showQueueMenu(index: number, position: { x: number; y: number }): void {

@@ -1,4 +1,18 @@
-import { App, FuzzySuggestModal, Modal, Setting } from "obsidian";
+import {
+	App,
+	FuzzySuggestModal,
+	Modal,
+	Notice,
+	Setting,
+} from "obsidian";
+import type StereoPlugin from "./main";
+import {
+	CONNECTION_MODE_OPTIONS,
+	createServerId,
+	normalizeServerConfig,
+	type ConnectionMode,
+	type ServerConfig,
+} from "./servers";
 import type { Playlist } from "./subsonic";
 
 interface PlaylistNameOptions {
@@ -105,6 +119,35 @@ export class PlaylistPickerModal extends FuzzySuggestModal<PlaylistChoice> {
 
 	onChooseItem(choice: PlaylistChoice): void {
 		this.onPick(choice);
+	}
+}
+
+/** Fuzzy picker over playlists when sharing one from the player. */
+export class PlaylistSharePickerModal extends FuzzySuggestModal<Playlist> {
+	private playlists: Playlist[];
+	private onPick: (playlist: Playlist) => void;
+
+	constructor(
+		app: App,
+		playlists: Playlist[],
+		onPick: (playlist: Playlist) => void
+	) {
+		super(app);
+		this.setPlaceholder("Share playlist…");
+		this.playlists = playlists;
+		this.onPick = onPick;
+	}
+
+	getItems(): Playlist[] {
+		return this.playlists;
+	}
+
+	getItemText(playlist: Playlist): string {
+		return playlist.name;
+	}
+
+	onChooseItem(playlist: Playlist): void {
+		this.onPick(playlist);
 	}
 }
 
@@ -233,5 +276,140 @@ export class ConfirmModal extends Modal {
 
 	onClose(): void {
 		this.contentEl.empty();
+	}
+}
+
+/** Add or edit one server configuration. */
+export class ServerEditModal extends Modal {
+	private plugin: StereoPlugin;
+	private values: ServerConfig;
+	private isEdit: boolean;
+	private onSubmit: (server: ServerConfig) => void;
+
+	constructor(
+		app: App,
+		plugin: StereoPlugin,
+		initial: ServerConfig | null,
+		onSubmit: (server: ServerConfig) => void
+	) {
+		super(app);
+		this.plugin = plugin;
+		this.isEdit = initial !== null;
+		this.values = normalizeServerConfig(
+			initial ?? {
+				id: createServerId(),
+				name: "",
+				wanUrl: "",
+				lanUrl: "",
+				shareBaseUrl: "",
+				username: "",
+				password: "",
+				connectionMode: "auto",
+			}
+		);
+		this.onSubmit = onSubmit;
+	}
+
+	onOpen(): void {
+		this.setTitle(this.isEdit ? "Edit server" : "Add server");
+
+		new Setting(this.contentEl).setName("Name").addText((text) => {
+			text
+				.setPlaceholder("Home")
+				.setValue(this.values.name)
+				.onChange((value) => {
+					this.values.name = value.trim();
+				});
+			text.inputEl.focus();
+		});
+
+		new Setting(this.contentEl)
+			.setName("WAN URL")
+			.setDesc("Public address of the server, used for share-link fallback.")
+			.addText((text) => {
+				text
+					.setPlaceholder("https://music.example.com")
+					.setValue(this.values.wanUrl)
+					.onChange((value) => {
+						this.values.wanUrl = value.trim();
+					});
+			});
+
+		new Setting(this.contentEl)
+			.setName("LAN URL")
+			.setDesc("Optional local address, preferred in Auto mode.")
+			.addText((text) => {
+				text
+					.setPlaceholder("http://192.168.1.10:4533")
+					.setValue(this.values.lanUrl)
+					.onChange((value) => {
+						this.values.lanUrl = value.trim();
+					});
+			});
+
+		new Setting(this.contentEl)
+			.setName("Share base URL")
+			.setDesc("Public base used for share links, without /share. Empty uses the WAN URL.")
+			.addText((text) => {
+				text
+					.setPlaceholder("https://music.example.com/navidrome")
+					.setValue(this.values.shareBaseUrl)
+					.onChange((value) => {
+						this.values.shareBaseUrl = value.trim();
+					});
+			});
+
+		new Setting(this.contentEl).setName("Username").addText((text) => {
+			text.setValue(this.values.username).onChange((value) => {
+				this.values.username = value.trim();
+			});
+		});
+
+		new Setting(this.contentEl).setName("Password").addText((text) => {
+			text.inputEl.type = "password";
+			text.setValue(this.values.password).onChange((value) => {
+				this.values.password = value;
+			});
+		});
+
+		new Setting(this.contentEl)
+			.setName("Connection mode")
+			.setDesc("Auto prefers LAN and falls back to WAN when it is unreachable.")
+			.addDropdown((dropdown) => {
+				for (const option of CONNECTION_MODE_OPTIONS) {
+					dropdown.addOption(option.value, option.label);
+				}
+				dropdown
+					.setValue(this.values.connectionMode)
+					.onChange((value) => {
+						this.values.connectionMode = value as ConnectionMode;
+					});
+			});
+
+		new Setting(this.contentEl)
+			.addButton((button) =>
+				button.setButtonText("Cancel").onClick(() => this.close())
+			)
+			.addButton((button) =>
+				button
+					.setButtonText(this.isEdit ? "Save" : "Add")
+					.setCta()
+					.onClick(() => this.submit())
+			);
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+
+	private submit(): void {
+		if (!this.values.wanUrl) {
+			new Notice("WAN URL is required.");
+			return;
+		}
+		if (!this.values.name) this.values.name = this.values.wanUrl;
+		const server = normalizeServerConfig(this.values);
+		this.close();
+		this.onSubmit(server);
 	}
 }

@@ -35,8 +35,9 @@ your notes.
   and shrink together when space is tight.
 - Media keys and the system playback overlay control Stereo and show the
   current track. The command palette can also open the player in a separate
-  desktop window, open the current album in the Navidrome web UI, or download
-  the current track and copy the file to the system clipboard.
+  desktop window, open the current album in the Navidrome web UI, download the
+  current track and copy the file to the system clipboard, add the current
+  track to favorites or a playlist, or search the library for selected text.
 - The status-bar play/pause button mirrors the player's blue play and red pause
   states. Right-click it for a mini player with cover art, linked artist and
   album, transport and shuffle, an expandable queue, rating and favorite
@@ -73,6 +74,11 @@ your notes.
   reveals 250 tracks at a time with **Load more**. It shows play counts and
   sorts by title, artist, album, newest/oldest added, release year (newest or
   oldest), rating, favorites, play count, or random.
+- When Stereo talks to octo-fiesta, search results mark albums, artists, and
+  tracks from streaming providers with an **External** badge, a shaded 10%
+  cover frame, and a matching cross over the cover. Local and external items
+  stay in one ranked list. Turn the marks off with
+  **Search → Highlight external content**.
 - Right-click context menus everywhere: play, play next, add to queue, add to
   playlist, go to artist/album, favorite, start station, share. The player's
   track title menu can add the current track or its whole album/playlist.

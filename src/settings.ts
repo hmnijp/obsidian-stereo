@@ -174,6 +174,8 @@ export interface StereoSettings {
 	showRatingButton: boolean;
 	/** Show copy actions in contextual menus. */
 	contextualCopyButtons: boolean;
+	/** Mark octo-fiesta streaming items with an External badge and cover frame. */
+	highlightExternal: boolean;
 	/** Show share actions and the share-link manager. */
 	sharingEnabled: boolean;
 	/** Preselected lifetime for new share links. */
@@ -229,6 +231,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showArtOverlays: true,
 	showRatingButton: true,
 	contextualCopyButtons: true,
+	highlightExternal: true,
 	sharingEnabled: true,
 	shareDefaultTtl: "7d",
 	shareDownloadsByDefault: false,
@@ -688,6 +691,11 @@ export class StereoSettingTab extends PluginSettingTab {
 				heading: "Search",
 				items: [
 					{
+						name: "Highlight external content",
+						desc: "Mark albums, artists, and tracks from octo-fiesta streaming providers with an External badge, a shaded 10% cover frame, and a matching cross over the cover.",
+						control: { type: "toggle", key: "highlightExternal" },
+					},
+					{
 						name: "Search speed",
 						desc: "How quickly results appear after you stop typing.",
 						control: {
@@ -739,6 +747,7 @@ export class StereoSettingTab extends PluginSettingTab {
 			this.plugin.applyStatusBarSetting();
 		}
 		if (key === "sharingEnabled") this.plugin.syncShareUi();
+		if (key === "highlightExternal") this.plugin.applyExternalHighlightSetting();
 		if (VIEW_REFRESH_KEYS.has(key)) this.plugin.refreshNowPlayingViews();
 		if (key === "lyricsAlign") this.applyLyricsPreview?.();
 	}

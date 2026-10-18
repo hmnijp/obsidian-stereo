@@ -1,4 +1,10 @@
-import { debounce, prepareFuzzySearch, setIcon } from "obsidian";
+import {
+	debounce,
+	prepareFuzzySearch,
+	setIcon,
+	type Debouncer,
+} from "obsidian";
+import { isExternalId } from "./external";
 import { createSongHeart } from "./favorite-button";
 import type { LibraryPane } from "./library";
 import { albumLabelFor, songMeta } from "./metadata";
@@ -28,7 +34,7 @@ export class SearchPane {
 	private active = false;
 	/** Bumped per query; stale responses are dropped. */
 	private token = 0;
-	private runDebounced: (query: string) => void;
+	private runDebounced: Debouncer<[string], void>;
 
 	constructor(
 		plugin: StereoPlugin,
@@ -66,6 +72,21 @@ export class SearchPane {
 		this.token += 1;
 		this.inputEl.value = "";
 		this.setActive(false);
+	}
+
+	/** Fill the input and run a query immediately (command palette entry). */
+	search(query: string): void {
+		const value = query.trim();
+		if (!value) {
+			this.close();
+			return;
+		}
+		this.runDebounced.cancel();
+		this.inputEl.value = value;
+		this.inputEl.focus();
+		this.setActive(true);
+		this.status("Searching…");
+		void this.run(value);
 	}
 
 	private handleInput(): void {
@@ -152,11 +173,12 @@ export class SearchPane {
 	}
 
 	private artistRow(artist: Artist): void {
+		const external = isExternalId(artist.id);
 		const row = this.resultsEl.createDiv({ cls: "stereo-list-row" });
-		const icon = row.createSpan({ cls: "stereo-list-row-icon" });
-		setIcon(icon, "user");
+		row.toggleClass("stereo-list-row-external", external);
+		this.thumb(row, artist.coverArt, "user");
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
-		meta.createDiv({ cls: "stereo-list-row-title", text: artist.name });
+		this.titleLine(meta, artist.name, external);
 		row.addEventListener("click", () => {
 			this.close();
 			this.options.openArtist(artist.id, artist.name);
@@ -167,13 +189,12 @@ export class SearchPane {
 	}
 
 	private albumRow(album: Album): void {
+		const external = isExternalId(album.id);
 		const row = this.resultsEl.createDiv({ cls: "stereo-list-row" });
+		row.toggleClass("stereo-list-row-external", external);
 		this.thumb(row, album.coverArt);
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
-		meta.createDiv({
-			cls: "stereo-list-row-title",
-			text: albumLabelFor(album),
-		});
+		this.titleLine(meta, albumLabelFor(album), external);
 		meta.createDiv({
 			cls: "stereo-list-row-sub",
 			text: album.artist?.trim() || "Unknown artist",
@@ -188,10 +209,12 @@ export class SearchPane {
 	}
 
 	private songRow(song: Song): void {
+		const external = isExternalId(song.id);
 		const row = this.resultsEl.createDiv({ cls: "stereo-list-row" });
+		row.toggleClass("stereo-list-row-external", external);
 		this.thumb(row, song.coverArt);
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
-		meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
+		this.titleLine(meta, song.title, external);
 		meta.createDiv({ cls: "stereo-list-row-sub", text: songMeta(song) });
 		createSongHeart(
 			row,
@@ -225,9 +248,30 @@ export class SearchPane {
 		});
 	}
 
-	private thumb(row: HTMLElement, coverArt: string | undefined): void {
+	private titleLine(
+		meta: HTMLElement,
+		text: string,
+		external: boolean
+	): void {
+		const line = meta.createDiv({ cls: "stereo-title-line" });
+		line.createDiv({ cls: "stereo-list-row-title", text });
+		if (external) {
+			line.createSpan({
+				cls: "stereo-external-badge",
+				text: "External",
+				attr: { title: "From a streaming provider" },
+			});
+		}
+	}
+
+	private thumb(
+		row: HTMLElement,
+		coverArt: string | undefined,
+		placeholderIcon = "music"
+	): void {
+		const wrap = row.createSpan({ cls: "stereo-list-row-thumb-wrap" });
 		if (coverArt) {
-			row.createEl("img", {
+			wrap.createEl("img", {
 				cls: "stereo-list-row-thumb",
 				attr: {
 					src: this.plugin.client.coverArtUrl(coverArt, 64),
@@ -236,10 +280,10 @@ export class SearchPane {
 				},
 			});
 		} else {
-			const placeholder = row.createSpan({
+			const placeholder = wrap.createSpan({
 				cls: "stereo-list-row-thumb stereo-list-row-thumb-empty",
 			});
-			setIcon(placeholder, "music");
+			setIcon(placeholder, placeholderIcon);
 		}
 	}
 }

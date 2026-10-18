@@ -3,6 +3,7 @@ import {
 	Plugin,
 	WorkspaceLeaf,
 	debounce,
+	type Editor,
 	type Side,
 	type WorkspaceItem,
 } from "obsidian";
@@ -192,6 +193,37 @@ export default class StereoPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "add-current-track-to-favorites",
+			name: "Add current track to favorites",
+			callback: () => {
+				void this.favoriteCurrentTrack();
+			},
+		});
+
+		this.addCommand({
+			id: "add-current-track-to-playlist",
+			name: "Add current track to playlist",
+			callback: () => {
+				const track = this.currentTrack();
+				if (!track) return;
+				void this.addToPlaylist([track]);
+			},
+		});
+
+		this.addCommand({
+			id: "search-selected-text",
+			name: "Search for selected text",
+			editorCallback: (editor: Editor) => {
+				const query = editor.getSelection().replace(/\s+/g, " ").trim();
+				if (!query) {
+					new Notice("Select some text to search for.");
+					return;
+				}
+				void this.searchForText(query);
+			},
+		});
+
+		this.addCommand({
 			id: "manage-share-links",
 			name: "Manage share links",
 			callback: () => {
@@ -219,6 +251,47 @@ export default class StereoPlugin extends Plugin {
 		this.ratings.destroy();
 		this.savePlayerState.cancel();
 		void this.saveAll();
+	}
+
+	/** The current player track, or a notice when nothing is playing. */
+	private currentTrack(): Song | null {
+		const track = this.player.getState().track;
+		if (!track) {
+			new Notice("Nothing playing.");
+			return null;
+		}
+		return track;
+	}
+
+	/** Add the current track to favorites once; never removes an existing star. */
+	private async favoriteCurrentTrack(): Promise<void> {
+		const track = this.currentTrack();
+		if (!track) return;
+		if (track.streamUrl) {
+			new Notice("Radio streams cannot be favorited.");
+			return;
+		}
+		if (this.favorites.isStarred(track)) {
+			new Notice("Already in favorites.");
+			return;
+		}
+		try {
+			await this.toggleSongFavorite(track);
+			new Notice("Added to favorites.");
+		} catch {
+			new Notice("Could not update favorites on the server.");
+		}
+	}
+
+	/** Open Stereo and search the library for editor-selected text. */
+	private async searchForText(query: string): Promise<void> {
+		await this.activateView();
+		const view = this.firstStereoView();
+		if (!view) {
+			new Notice("Could not open the player.");
+			return;
+		}
+		view.searchFor(query);
 	}
 
 	/**
@@ -264,6 +337,15 @@ export default class StereoPlugin extends Plugin {
 	refreshNowPlayingViews(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) leaf.view.applyNowPlayingView();
+		}
+	}
+
+	/** Apply External badge and cover-frame visibility to open players. */
+	applyExternalHighlightSetting(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) {
+				leaf.view.applyExternalHighlightSetting();
+			}
 		}
 	}
 

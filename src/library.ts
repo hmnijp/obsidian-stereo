@@ -5,6 +5,7 @@ import {
 	PlaylistNameModal,
 	RadioStationModal,
 } from "./modals";
+import { isExternalId } from "./external";
 import { createSongHeart } from "./favorite-button";
 import { albumDateValue, albumLabelFor, songMeta } from "./metadata";
 import { SubsonicError } from "./subsonic";
@@ -1359,10 +1360,29 @@ export class LibraryPane extends Component {
 
 	// --- row/card builders ---
 
+	private rowTitle(
+		meta: HTMLElement,
+		text: string,
+		external: boolean
+	): void {
+		const line = meta.createDiv({ cls: "stereo-title-line" });
+		line.createDiv({ cls: "stereo-list-row-title", text });
+		if (external) {
+			line.createSpan({
+				cls: "stereo-external-badge",
+				text: "External",
+				attr: { title: "From a streaming provider" },
+			});
+		}
+	}
+
 	private albumCard(grid: HTMLElement, album: Album): void {
+		const external = isExternalId(album.id);
 		const card = grid.createDiv({ cls: "stereo-card" });
+		card.toggleClass("stereo-card-external", external);
+		const cover = card.createDiv({ cls: "stereo-card-cover-wrap" });
 		if (album.coverArt) {
-			card.createEl("img", {
+			cover.createEl("img", {
 				cls: "stereo-card-cover",
 				attr: {
 					src: this.plugin.client.coverArtUrl(album.coverArt, 300),
@@ -1371,13 +1391,23 @@ export class LibraryPane extends Component {
 				},
 			});
 		} else {
-			const placeholder = card.createDiv({ cls: "stereo-card-cover stereo-card-cover-empty" });
+			const placeholder = cover.createDiv({ cls: "stereo-card-cover stereo-card-cover-empty" });
 			setIcon(placeholder, "music");
 		}
-		card.createDiv({
+		const titleLine = card.createDiv({
+			cls: "stereo-title-line stereo-card-title-line",
+		});
+		titleLine.createDiv({
 			cls: "stereo-card-title",
 			text: albumLabelFor(album),
 		});
+		if (external) {
+			titleLine.createSpan({
+				cls: "stereo-external-badge",
+				text: "External",
+				attr: { title: "From a streaming provider" },
+			});
+		}
 		card.createDiv({
 			cls: "stereo-card-artist",
 			text: album.artist?.trim() || "Unknown artist",
@@ -1392,9 +1422,11 @@ export class LibraryPane extends Component {
 	}
 
 	private artistRow(artist: Artist): void {
+		const external = isExternalId(artist.id);
 		const row = this.contentEl.createDiv({ cls: "stereo-list-row" });
+		row.toggleClass("stereo-list-row-external", external);
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
-		meta.createDiv({ cls: "stereo-list-row-title", text: artist.name });
+		this.rowTitle(meta, artist.name, external);
 		meta.createDiv({
 			cls: "stereo-list-row-sub",
 			text: albumCountLabel(artist.albumCount ?? 0),
@@ -1452,7 +1484,9 @@ export class LibraryPane extends Component {
 		}
 	): void {
 		const song = songs[index] as Song;
+		const external = isExternalId(song.id);
 		const row = list.createDiv({ cls: "stereo-list-row" });
+		row.toggleClass("stereo-list-row-external", external);
 		if (options.showNumber) {
 			row.createSpan({
 				cls: "stereo-list-row-number",
@@ -1460,7 +1494,7 @@ export class LibraryPane extends Component {
 			});
 		}
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
-		meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
+		this.rowTitle(meta, song.title, external);
 		meta.createDiv({ cls: "stereo-list-row-sub", text: songMeta(song) });
 		this.songHeart(row, song);
 		if (options.showPlayCount) {

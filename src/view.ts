@@ -302,6 +302,7 @@ export class StereoView extends ItemView {
 
 		this.setActiveTab("nowPlaying");
 		this.applyNowPlayingView();
+		this.applyExternalHighlightSetting();
 		this.syncShareUi();
 		this.register(
 			this.plugin.favorites.subscribe(() => {
@@ -543,6 +544,14 @@ export class StereoView extends ItemView {
 		this.render(state);
 	}
 
+	/** Show or hide External badges and cover frames without re-rendering lists. */
+	applyExternalHighlightSetting(): void {
+		this.contentEl.toggleClass(
+			"stereo-hide-external-marks",
+			!this.plugin.settings.highlightExternal
+		);
+	}
+
 	/** Show or hide share controls after the settings toggle changes. */
 	syncShareUi(): void {
 		const enabled = this.plugin.settings.sharingEnabled;
@@ -618,6 +627,11 @@ export class StereoView extends ItemView {
 		// Return to the agreed extras order: repeat, shuffle, queue, …
 		this.extrasRow.insertBefore(this.repeatButton, this.queueButton);
 		this.extrasRow.insertBefore(this.shuffleButton, this.queueButton);
+	}
+
+	/** Run a library search from the command palette. */
+	searchFor(query: string): void {
+		this.search?.search(query);
 	}
 
 	/** Rebuild library data after the active server changes. */

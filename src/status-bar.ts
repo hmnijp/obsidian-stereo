@@ -1,6 +1,7 @@
 import { Menu, Notice, setIcon } from "obsidian";
 import { copyCoverToClipboard } from "./cover-clipboard";
 import type StereoPlugin from "./main";
+import { albumLabel, songMeta } from "./metadata";
 import { PlaylistSharePickerModal } from "./modals";
 import type { PlayerState } from "./player";
 import {
@@ -908,16 +909,17 @@ export class StatusBarPlayer {
 			track?.title?.trim() || (track ? "Untitled" : "Nothing playing")
 		);
 		this.titleEl?.toggleClass("stereo-status-popup-title-empty", !track);
-		this.artistEl?.setText(track?.artist?.trim() ?? "");
-		this.albumEl?.setText(track?.album?.trim() ?? "");
+		this.artistEl?.setText(
+			track ? track.artist?.trim() || "Unknown artist" : ""
+		);
+		this.albumEl?.setText(
+			track ? albumLabel(track.album, track.year) : ""
+		);
 
 		const artistLink = !!track?.artistId;
 		const albumLink = !!track?.albumId;
 		this.artistEl?.toggleClass("stereo-link", artistLink);
-		this.artistEl?.toggleClass(
-			"stereo-hidden",
-			!track?.artist?.trim()
-		);
+		this.artistEl?.toggleClass("stereo-hidden", !track);
 		this.artistEl?.setAttribute("tabindex", artistLink ? "0" : "-1");
 		if (artistLink) this.artistEl?.setAttribute("role", "link");
 		else this.artistEl?.removeAttribute("role");
@@ -1211,12 +1213,10 @@ export class StatusBarPlayer {
 				cls: "stereo-status-queue-title",
 				text: song.title,
 			});
-			if (song.artist) {
-				meta.createDiv({
-					cls: "stereo-status-queue-artist",
-					text: song.artist,
-				});
-			}
+			meta.createDiv({
+				cls: "stereo-status-queue-artist",
+				text: songMeta(song),
+			});
 			const play = (): void => {
 				void this.plugin.player.playAt(index);
 			};

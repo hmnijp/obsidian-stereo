@@ -64,7 +64,15 @@ your notes.
 - Recently played lists the latest 200 song plays, newest first. Use the history
   icon in Library to play a track again, add it to the queue, or clear history.
 - Browse albums, artists, playlists, and internet radio, with drill-in
-  navigation (artist → album → track) and an A–Z scrubber for long lists.
+  navigation (artist → album → track) and an A-Z scrubber for long lists.
+- Sort the album grid by name, artist, newest added, release date, rating,
+  favorites, recently played, most played, or random. An artist page has its
+  own sort button with name, artist, release date, rating, favorites, and
+  random. Track rows always show the artist and `album - year`.
+- The Tracks tab loads the library once for globally correct sorting and
+  reveals 250 tracks at a time with **Load more**. It shows play counts and
+  sorts by title, artist, album, newest/oldest added, release year (newest or
+  oldest), rating, favorites, play count, or random.
 - Right-click context menus everywhere: play, play next, add to queue, add to
   playlist, go to artist/album, favorite, start station, share. The player's
   track title menu can add the current track or its whole album/playlist.

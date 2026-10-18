@@ -21,6 +21,7 @@ import {
 	type RatingSummary,
 } from "./rating-button";
 import { LibraryPane } from "./library";
+import { songAlbumLabel, songMeta } from "./metadata";
 import { PlaylistNameModal, PlaylistSharePickerModal } from "./modals";
 import { SearchPane } from "./search";
 import { shareTargetForPlaylist, shareTargetForSong } from "./share";
@@ -2017,8 +2018,14 @@ export class StereoView extends ItemView {
 		}
 
 		this.titleEl.setText(state.track?.title ?? "Nothing playing");
-		this.artistEl.setText(state.track?.artist ?? "");
-		this.albumEl.setText(state.track?.album ?? "");
+		this.artistEl.setText(
+			state.track
+				? state.track.artist?.trim() || "Unknown artist"
+				: ""
+		);
+		this.albumEl.setText(
+			state.track ? songAlbumLabel(state.track) : ""
+		);
 		this.artistEl.toggleClass("stereo-link", !!state.track?.artistId);
 		this.albumEl.toggleClass("stereo-link", !!state.track?.albumId);
 
@@ -2026,8 +2033,14 @@ export class StereoView extends ItemView {
 		this.playButton.toggleClass("stereo-playing", state.playing);
 		this.playButton.disabled = !state.track;
 		this.miniTitleEl.setText(state.track?.title ?? "Nothing playing");
-		this.miniArtistEl.setText(state.track?.artist ?? "");
-		this.miniAlbumEl.setText(state.track?.album ?? "");
+		this.miniArtistEl.setText(
+			state.track
+				? state.track.artist?.trim() || "Unknown artist"
+				: ""
+		);
+		this.miniAlbumEl.setText(
+			state.track ? songAlbumLabel(state.track) : ""
+		);
 		this.miniArtistEl.toggleClass("stereo-mini-link", !!state.track?.artistId);
 		this.miniAlbumEl.toggleClass("stereo-mini-link", !!state.track?.albumId);
 		this.miniSepEl.toggleClass(
@@ -2216,7 +2229,7 @@ export class StereoView extends ItemView {
 			row.createDiv({ cls: "stereo-queue-row-number", text: String(i + 1) });
 			const meta = row.createDiv({ cls: "stereo-queue-row-meta" });
 			meta.createDiv({ cls: "stereo-queue-row-title", text: song.title });
-			meta.createDiv({ cls: "stereo-queue-row-artist", text: song.artist ?? "" });
+			meta.createDiv({ cls: "stereo-queue-row-artist", text: songMeta(song) });
 			this.songHeart(row, song);
 		});
 
@@ -2317,7 +2330,7 @@ export class StereoView extends ItemView {
 
 			const meta = row.createDiv({ cls: "stereo-queue-row-meta" });
 			meta.createDiv({ cls: "stereo-queue-row-title", text: song.title });
-			meta.createDiv({ cls: "stereo-queue-row-artist", text: song.artist ?? "" });
+			meta.createDiv({ cls: "stereo-queue-row-artist", text: songMeta(song) });
 
 			this.songHeart(row, song);
 			if (song.duration) {

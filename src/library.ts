@@ -6,8 +6,10 @@ import {
 	RadioStationModal,
 } from "./modals";
 import { createSongHeart } from "./favorite-button";
+import { albumDateValue, albumLabelFor, songMeta } from "./metadata";
 import { SubsonicError } from "./subsonic";
 import type StereoPlugin from "./main";
+import type { AlbumSort, TrackSort } from "./settings";
 import type { QueueOrigin } from "./player";
 import {
 	shareTargetForAlbum,
@@ -24,7 +26,7 @@ import type {
 	Song,
 } from "./subsonic";
 
-type SubTab = "albums" | "artists" | "playlists" | "radio";
+type SubTab = "albums" | "tracks" | "artists" | "playlists" | "radio";
 
 type Page =
 	| { kind: "root" }
@@ -36,12 +38,190 @@ type Page =
 
 const SUB_TABS: { id: SubTab; label: string }[] = [
 	{ id: "albums", label: "Albums" },
+	{ id: "tracks", label: "Tracks" },
 	{ id: "artists", label: "Artists" },
 	{ id: "playlists", label: "Playlists" },
 	{ id: "radio", label: "Radio" },
 ];
 
 const ALBUM_PAGE_SIZE = 100;
+const ALBUM_FETCH_SIZE = 500;
+
+const ALBUM_SORTS: { value: AlbumSort; label: string }[] = [
+	{ value: "alphabeticalByName", label: "Name" },
+	{ value: "alphabeticalByArtist", label: "Artist" },
+	{ value: "newest", label: "Newest (added)" },
+	{ value: "releaseDate", label: "Release date (newest)" },
+	{ value: "rating", label: "Rating" },
+	{ value: "favorites", label: "Favorites" },
+	{ value: "recent", label: "Recently played" },
+	{ value: "frequent", label: "Most played" },
+	{ value: "random", label: "Random" },
+];
+
+const ARTIST_ALBUM_SORTS = ALBUM_SORTS.filter((option) =>
+	[
+		"alphabeticalByName",
+		"alphabeticalByArtist",
+		"releaseDate",
+		"rating",
+		"favorites",
+		"random",
+	].includes(option.value)
+);
+
+function albumSortOf(value: AlbumSort): AlbumSort {
+	if ((value as string) === "releaseYear") return "releaseDate";
+	return ALBUM_SORTS.some((option) => option.value === value)
+		? value
+		: "alphabeticalByName";
+}
+
+function artistAlbumSortOf(value: AlbumSort): AlbumSort {
+	if ((value as string) === "releaseYear") return "releaseDate";
+	return ARTIST_ALBUM_SORTS.some((option) => option.value === value)
+		? value
+		: "releaseDate";
+}
+
+const TRACK_PAGE_SIZE = 250;
+const TRACK_FETCH_SIZE = 500;
+
+const TRACK_SORTS: { value: TrackSort; label: string }[] = [
+	{ value: "title", label: "Title" },
+	{ value: "artist", label: "Artist" },
+	{ value: "album", label: "Album" },
+	{ value: "newest", label: "Newest (added)" },
+	{ value: "oldest", label: "Oldest (added)" },
+	{ value: "releaseYear", label: "Release year (newest)" },
+	{ value: "releaseYearOldest", label: "Release year (oldest)" },
+	{ value: "rating", label: "Rating" },
+	{ value: "favorites", label: "Favorites" },
+	{ value: "plays", label: "Play count" },
+	{ value: "random", label: "Random" },
+];
+
+function trackSortOf(value: TrackSort): TrackSort {
+	return TRACK_SORTS.some((option) => option.value === value)
+		? value
+		: "title";
+}
+
+function sortTracks(tracks: Song[], sort: TrackSort): Song[] {
+	const list = [...tracks];
+	switch (sort) {
+		case "artist":
+			return list.sort(
+				(first, second) =>
+					(first.artist ?? "").localeCompare(second.artist ?? "") ||
+					(first.album ?? "").localeCompare(second.album ?? "") ||
+					first.title.localeCompare(second.title)
+			);
+		case "album":
+			return list.sort(
+				(first, second) =>
+					(first.album ?? "").localeCompare(second.album ?? "") ||
+					(first.track ?? 0) - (second.track ?? 0) ||
+					first.title.localeCompare(second.title)
+			);
+		case "newest":
+			return list.sort(
+				(first, second) =>
+					createdTimestamp(second.created) -
+						createdTimestamp(first.created) ||
+					first.title.localeCompare(second.title)
+			);
+		case "oldest":
+			return list.sort(
+				(first, second) =>
+					createdTimestamp(first.created) -
+						createdTimestamp(second.created) ||
+					first.title.localeCompare(second.title)
+			);
+		case "releaseYear":
+			return list.sort(
+				(first, second) =>
+					(second.year ?? 0) - (first.year ?? 0) ||
+					(first.album ?? "").localeCompare(second.album ?? "") ||
+					(first.track ?? 0) - (second.track ?? 0) ||
+					first.title.localeCompare(second.title)
+			);
+		case "releaseYearOldest":
+			return list.sort(
+				(first, second) =>
+					(first.year ?? 0) - (second.year ?? 0) ||
+					(first.album ?? "").localeCompare(second.album ?? "") ||
+					(first.track ?? 0) - (second.track ?? 0) ||
+					first.title.localeCompare(second.title)
+			);
+		case "rating":
+			return list.sort(
+				(first, second) =>
+					(second.userRating ?? 0) - (first.userRating ?? 0) ||
+					first.title.localeCompare(second.title)
+			);
+		case "favorites":
+			return list.sort(
+				(first, second) =>
+					(second.starred ? 1 : 0) - (first.starred ? 1 : 0) ||
+					first.title.localeCompare(second.title)
+			);
+		case "plays":
+			return list.sort(
+				(first, second) =>
+					(second.playCount ?? 0) - (first.playCount ?? 0) ||
+					first.title.localeCompare(second.title)
+			);
+		case "random":
+			return list.sort(() => Math.random() - 0.5);
+		default:
+			return list.sort((first, second) =>
+				first.title.localeCompare(second.title)
+			);
+	}
+}
+
+function byReleaseDate(first: Album, second: Album): number {
+	const firstDate = albumDateValue(first);
+	const secondDate = albumDateValue(second);
+	if (firstDate !== secondDate) return secondDate - firstDate;
+	return first.name.localeCompare(second.name);
+}
+
+function sortAlbums(albums: Album[], sort: AlbumSort): Album[] {
+	const list = [...albums];
+	switch (sort) {
+		case "alphabeticalByArtist":
+			return list.sort(
+				(first, second) =>
+					(first.artist ?? "").localeCompare(second.artist ?? "") ||
+					first.name.localeCompare(second.name)
+			);
+		case "releaseDate":
+		case "newest":
+		case "recent":
+		case "frequent":
+			return list.sort(byReleaseDate);
+		case "rating":
+			return list.sort(
+				(first, second) =>
+					(second.userRating ?? 0) - (first.userRating ?? 0) ||
+					first.name.localeCompare(second.name)
+			);
+		case "favorites":
+			return list.sort(
+				(first, second) =>
+					(second.starred ? 1 : 0) - (first.starred ? 1 : 0) ||
+					first.name.localeCompare(second.name)
+			);
+		case "random":
+			return list.sort(() => Math.random() - 0.5);
+		default:
+			return list.sort((first, second) =>
+				first.name.localeCompare(second.name)
+			);
+	}
+}
 
 /**
  * Library tab: sub-tabs (Albums / Artists / Playlists / Radio), drill-in
@@ -54,6 +234,10 @@ export class LibraryPane extends Component {
 	private renderedHistory: readonly HistoryEntry[] = [];
 	private plugin: StereoPlugin;
 	private subTabButtons = {} as Record<SubTab, HTMLButtonElement>;
+	/** Album sort picker; shown on the Albums root and artist pages. */
+	private albumSortButton!: HTMLButtonElement;
+	/** Track sort picker; only shown on the Tracks root. */
+	private trackSortButton!: HTMLButtonElement;
 	/** "+" in the sub-tab bar; only shown on the Radio sub-tab. */
 	private addStationButton!: HTMLButtonElement;
 	/** Heart in the sub-tab bar; accent-highlighted while Favorites is open. */
@@ -72,6 +256,8 @@ export class LibraryPane extends Component {
 	// Root-list caches so sub-tab flips don't refetch. Refresh clears them.
 	private albums: Album[] | null = null;
 	private albumsExhausted = false;
+	private tracks: Song[] | null = null;
+	private tracksVisible = TRACK_PAGE_SIZE;
 	private artistIndexes: ArtistIndex[] | null = null;
 	private playlists: Playlist[] | null = null;
 	private stations: RadioStation[] | null = null;
@@ -92,6 +278,22 @@ export class LibraryPane extends Component {
 			});
 			this.subTabButtons[id] = button;
 		}
+		this.albumSortButton = subTabBar.createEl("button", {
+			cls: "stereo-button clickable-icon stereo-subtab-sort",
+			attr: { "aria-label": "Sort albums", title: "Sort albums" },
+		});
+		setIcon(this.albumSortButton, "arrow-up-down");
+		this.registerDomEvent(this.albumSortButton, "click", (event) => {
+			this.showAlbumSortMenu(event);
+		});
+		this.trackSortButton = subTabBar.createEl("button", {
+			cls: "stereo-button clickable-icon stereo-subtab-sort",
+			attr: { "aria-label": "Sort tracks", title: "Sort tracks" },
+		});
+		setIcon(this.trackSortButton, "arrow-up-down");
+		this.registerDomEvent(this.trackSortButton, "click", (event) => {
+			this.showTrackSortMenu(event);
+		});
 		this.favoritesButton = subTabBar.createEl("button", {
 			cls: "stereo-button clickable-icon stereo-subtab-refresh",
 			attr: { "aria-label": "Favorites" },
@@ -217,6 +419,8 @@ export class LibraryPane extends Component {
 	reload(): void {
 		this.albums = null;
 		this.albumsExhausted = false;
+		this.tracks = null;
+		this.tracksVisible = TRACK_PAGE_SIZE;
 		this.artistIndexes = null;
 		this.playlists = null;
 		this.stations = null;
@@ -258,6 +462,10 @@ export class LibraryPane extends Component {
 				this.albums = null;
 				this.albumsExhausted = false;
 				break;
+			case "tracks":
+				this.tracks = null;
+				this.tracksVisible = TRACK_PAGE_SIZE;
+				break;
 			case "artists":
 				this.artistIndexes = null;
 				break;
@@ -271,10 +479,113 @@ export class LibraryPane extends Component {
 		this.render();
 	}
 
+	private showAlbumSortMenu(event: MouseEvent): void {
+		const page = this.stack[this.stack.length - 1];
+		const artistPage = page?.kind === "artist";
+		const options = artistPage ? ARTIST_ALBUM_SORTS : ALBUM_SORTS;
+		const current = artistPage
+			? artistAlbumSortOf(this.plugin.settings.artistAlbumSort)
+			: albumSortOf(this.plugin.settings.albumSort);
+		const menu = new Menu();
+		for (const option of options) {
+			menu.addItem((item) =>
+				item
+					.setTitle(option.label)
+					.setChecked(option.value === current)
+					.onClick(() => {
+						if (artistPage) void this.setArtistAlbumSort(option.value);
+						else void this.setAlbumSort(option.value);
+					})
+			);
+		}
+		menu.showAtMouseEvent(event);
+	}
+
+	private async setAlbumSort(value: AlbumSort): Promise<void> {
+		if (albumSortOf(this.plugin.settings.albumSort) === value) return;
+		this.plugin.settings.albumSort = value;
+		await this.plugin.saveSettings();
+		this.albums = null;
+		this.albumsExhausted = false;
+		const page = this.stack[this.stack.length - 1];
+		if (this.activeSubTab === "albums" && page?.kind === "root") {
+			this.render();
+		}
+	}
+
+	private async setArtistAlbumSort(value: AlbumSort): Promise<void> {
+		if (artistAlbumSortOf(this.plugin.settings.artistAlbumSort) === value) {
+			return;
+		}
+		this.plugin.settings.artistAlbumSort = value;
+		await this.plugin.saveSettings();
+		if (this.stack[this.stack.length - 1]?.kind === "artist") {
+			this.render();
+		}
+	}
+
+	private showTrackSortMenu(event: MouseEvent): void {
+		const current = trackSortOf(this.plugin.settings.trackSort);
+		const menu = new Menu();
+		for (const option of TRACK_SORTS) {
+			menu.addItem((item) =>
+				item
+					.setTitle(option.label)
+					.setChecked(option.value === current)
+					.onClick(() => {
+						void this.setTrackSort(option.value);
+					})
+			);
+		}
+		menu.showAtMouseEvent(event);
+	}
+
+	private async setTrackSort(value: TrackSort): Promise<void> {
+		if (trackSortOf(this.plugin.settings.trackSort) === value) return;
+		this.plugin.settings.trackSort = value;
+		await this.plugin.saveSettings();
+		this.tracksVisible = TRACK_PAGE_SIZE;
+		if (this.activeSubTab === "tracks") this.render();
+	}
+
 	// --- rendering ---
 
 	private render(): void {
 		this.loadToken += 1;
+		const page = this.stack[this.stack.length - 1] ?? { kind: "root" as const };
+		const sortableAlbums =
+			(this.activeSubTab === "albums" && page.kind === "root") ||
+			page.kind === "artist";
+		this.albumSortButton.toggleClass(
+			"stereo-hidden",
+			!sortableAlbums
+		);
+		const artistPage = page.kind === "artist";
+		const sortOptions = artistPage ? ARTIST_ALBUM_SORTS : ALBUM_SORTS;
+		const currentSort = artistPage
+			? artistAlbumSortOf(this.plugin.settings.artistAlbumSort)
+			: albumSortOf(this.plugin.settings.albumSort);
+		const sortLabel =
+			sortOptions.find((option) => option.value === currentSort)?.label ??
+			"Name";
+		this.albumSortButton.setAttribute(
+			"aria-label",
+			`Sort albums: ${sortLabel}`
+		);
+		this.albumSortButton.setAttribute("title", `Sort albums: ${sortLabel}`);
+		const tracksRoot =
+			this.activeSubTab === "tracks" && page.kind === "root";
+		this.trackSortButton.toggleClass("stereo-hidden", !tracksRoot);
+		const trackSortLabel =
+			TRACK_SORTS.find(
+				(option) =>
+					option.value === trackSortOf(this.plugin.settings.trackSort)
+			)?.label ?? "Title";
+		this.trackSortButton.setAttribute(
+			"aria-label",
+			`Sort tracks: ${trackSortLabel}`
+		);
+		this.trackSortButton.setAttribute("title", `Sort tracks: ${trackSortLabel}`);
 		for (const { id } of SUB_TABS) {
 			this.subTabButtons[id].toggleClass(
 				"stereo-subtab-active",
@@ -295,7 +606,6 @@ export class LibraryPane extends Component {
 		this.contentEl.empty();
 		this.contentEl.scrollTop = 0;
 
-		const page = this.stack[this.stack.length - 1] ?? { kind: "root" as const };
 		this.favoritesButton.toggleClass(
 			"stereo-button-active",
 			page.kind === "favorites"
@@ -383,7 +693,7 @@ export class LibraryPane extends Component {
 			}
 			const meta = row.createDiv({ cls: "stereo-list-row-meta" });
 			meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
-			meta.createDiv({ cls: "stereo-list-row-sub", text: song.artist ?? "Unknown artist" });
+			meta.createDiv({ cls: "stereo-list-row-sub", text: songMeta(song) });
 			const date = new Date(playedAt);
 			const metaLine = meta.createDiv({ cls: "stereo-history-meta-line" });
 			this.songHeart(metaLine, song);
@@ -418,6 +728,9 @@ export class LibraryPane extends Component {
 		switch (this.activeSubTab) {
 			case "albums":
 				void this.renderAlbumsRoot();
+				break;
+			case "tracks":
+				void this.renderTracksRoot();
 				break;
 			case "artists":
 				void this.renderArtistsRoot();
@@ -458,38 +771,179 @@ export class LibraryPane extends Component {
 
 	// --- root lists ---
 
+	/** Client-side album sorts need the whole collection, not just one page. */
+	private async loadAllAlbums(): Promise<Album[] | null> {
+		const token = this.loadToken;
+		const loadingEl = this.contentEl.createDiv({
+			cls: "stereo-library-status",
+			text: "Loading all albums…",
+		});
+		try {
+			const all: Album[] = [];
+			let offset = 0;
+			while (true) {
+				const page = await this.plugin.client.getAlbumList2(
+					"alphabeticalByName",
+					ALBUM_FETCH_SIZE,
+					offset
+				);
+				if (token !== this.loadToken) {
+					loadingEl.remove();
+					return null;
+				}
+				all.push(...page);
+				if (page.length === 0) break;
+				offset += page.length;
+			}
+			loadingEl.remove();
+			return all;
+		} catch {
+			if (token !== this.loadToken) return null;
+			loadingEl.remove();
+			const errorEl = this.contentEl.createDiv({
+				cls: "stereo-library-status",
+			});
+			errorEl.createSpan({ text: "Could not load albums. " });
+			const retry = errorEl.createEl("a", { text: "Retry" });
+			retry.addEventListener("click", () => {
+				this.render();
+			});
+			return null;
+		}
+	}
+
+	private async loadAllTracks(): Promise<Song[] | null> {
+		const token = this.loadToken;
+		const loadingEl = this.contentEl.createDiv({
+			cls: "stereo-library-status",
+			text: "Loading all tracks…",
+		});
+		try {
+			const all: Song[] = [];
+			let offset = 0;
+			while (true) {
+				const result = await this.plugin.client.search3(
+					"",
+					{ artistCount: 0, albumCount: 0, songCount: TRACK_FETCH_SIZE },
+					{ songOffset: offset }
+				);
+				if (token !== this.loadToken) {
+					loadingEl.remove();
+					return null;
+				}
+				all.push(...result.songs);
+				if (result.songs.length === 0) break;
+				offset += result.songs.length;
+			}
+			loadingEl.remove();
+			return all;
+		} catch {
+			if (token !== this.loadToken) return null;
+			loadingEl.remove();
+			const errorEl = this.contentEl.createDiv({
+				cls: "stereo-library-status",
+			});
+			errorEl.createSpan({ text: "Could not load tracks. " });
+			const retry = errorEl.createEl("a", { text: "Retry" });
+			retry.addEventListener("click", () => {
+				this.render();
+			});
+			return null;
+		}
+	}
+
+	private async renderTracksRoot(): Promise<void> {
+		if (!this.tracks) {
+			const all = await this.loadAllTracks();
+			if (!all) return;
+			this.tracks = all;
+			this.tracksVisible = TRACK_PAGE_SIZE;
+		}
+		if (this.tracks.length === 0) {
+			this.emptyStatus("No tracks found.");
+			return;
+		}
+		const songs = sortTracks(
+			this.tracks,
+			trackSortOf(this.plugin.settings.trackSort)
+		);
+		const visible = songs.slice(
+			0,
+			Math.min(this.tracksVisible, songs.length)
+		);
+		const list = this.contentEl.createDiv({ cls: "stereo-track-list" });
+		visible.forEach((_, index) => {
+			this.trackRow(list, songs, index, {
+				showNumber: false,
+				showPlayCount: true,
+			});
+		});
+
+		if (this.tracksVisible < songs.length) {
+			const moreRow = this.contentEl.createDiv({ cls: "stereo-more-row" });
+			const moreButton = moreRow.createEl("button", {
+				cls: "stereo-button stereo-text-button clickable-icon",
+				text: "Load more",
+			});
+			moreButton.addEventListener("click", () => {
+				this.tracksVisible += TRACK_PAGE_SIZE;
+				const scroll = this.contentEl.scrollTop;
+				this.render();
+				this.contentEl.scrollTop = scroll;
+			});
+		}
+	}
+
 	private async renderAlbumsRoot(): Promise<void> {
+		const sort = albumSortOf(this.plugin.settings.albumSort);
+		const clientSort =
+			sort === "releaseDate" || sort === "rating" || sort === "favorites";
+		const serverSort = clientSort ? null : sort;
 		if (!this.albums) {
-			const page = await this.loadPage(() =>
-				this.plugin.client.getAlbumList2("alphabeticalByName", ALBUM_PAGE_SIZE, 0)
-			);
-			if (!page) return;
-			this.albums = page;
-			this.albumsExhausted = page.length < ALBUM_PAGE_SIZE;
+			if (!serverSort) {
+				const all = await this.loadAllAlbums();
+				if (!all) return;
+				this.albums = sortAlbums(all, sort);
+				this.albumsExhausted = true;
+			} else {
+				const page = await this.loadPage(() =>
+					this.plugin.client.getAlbumList2(
+						serverSort,
+						ALBUM_PAGE_SIZE,
+						0
+					)
+				);
+				if (!page) return;
+				this.albums = page;
+				this.albumsExhausted = page.length < ALBUM_PAGE_SIZE;
+			}
 		}
 
 		const grid = this.contentEl.createDiv({ cls: "stereo-grid" });
 		for (const album of this.albums) this.albumCard(grid, album);
 
-		if (!this.albumsExhausted) {
+		if (!this.albumsExhausted && serverSort) {
 			const moreRow = this.contentEl.createDiv({ cls: "stereo-more-row" });
 			const moreButton = moreRow.createEl("button", {
 				cls: "stereo-button stereo-text-button clickable-icon",
 				text: "Load more",
 			});
 			const loadMore = async (): Promise<void> => {
+				if (!serverSort) return;
 				moreButton.disabled = true;
 				const token = this.loadToken;
 				try {
 					const next = await this.plugin.client.getAlbumList2(
-						"alphabeticalByName",
+						serverSort,
 						ALBUM_PAGE_SIZE,
 						this.albums?.length ?? 0
 					);
 					if (token !== this.loadToken || !this.albums) return;
 					this.albums = [...this.albums, ...next];
 					this.albumsExhausted = next.length < ALBUM_PAGE_SIZE;
+					const scroll = this.contentEl.scrollTop;
 					this.render();
+					this.contentEl.scrollTop = scroll;
 				} catch {
 					if (token !== this.loadToken) return;
 					moreButton.disabled = false;
@@ -652,7 +1106,7 @@ export class LibraryPane extends Component {
 			this.sectionHeading("Tracks");
 			const list = this.contentEl.createDiv({ cls: "stereo-track-list" });
 			songs.forEach((_, i) => {
-				this.trackRow(list, songs, i, { showNumber: false, hideArtist: false });
+				this.trackRow(list, songs, i, { showNumber: false });
 			});
 		}
 	}
@@ -684,7 +1138,10 @@ export class LibraryPane extends Component {
 		});
 
 		const grid = this.contentEl.createDiv({ cls: "stereo-grid" });
-		for (const album of result.albums) this.albumCard(grid, album, true);
+		const sort = artistAlbumSortOf(this.plugin.settings.artistAlbumSort);
+		for (const album of sortAlbums(result.albums, sort)) {
+			this.albumCard(grid, album);
+		}
 	}
 
 	private async renderAlbumPage(id: string): Promise<void> {
@@ -703,10 +1160,13 @@ export class LibraryPane extends Component {
 			});
 		}
 		const headerText = header.createDiv({ cls: "stereo-detail-text" });
-		headerText.createDiv({ cls: "stereo-detail-title", text: album.name });
+		headerText.createDiv({
+			cls: "stereo-detail-title",
+			text: albumLabelFor(album),
+		});
 		const artistLine = headerText.createDiv({
 			cls: "stereo-detail-meta",
-			text: album.artist ?? "",
+			text: album.artist?.trim() || "Unknown artist",
 		});
 		if (album.artistId) {
 			artistLine.addClass("stereo-link");
@@ -714,10 +1174,10 @@ export class LibraryPane extends Component {
 				this.openArtist(album.artistId as string, album.artist ?? "");
 			});
 		}
-		const metaParts: string[] = [];
-		if (album.year) metaParts.push(String(album.year));
-		metaParts.push(songCountLabel(songs.length));
-		headerText.createDiv({ cls: "stereo-detail-meta", text: metaParts.join(" · ") });
+		headerText.createDiv({
+			cls: "stereo-detail-meta",
+			text: songCountLabel(songs.length),
+		});
 
 		const playRow = headerText.createDiv({ cls: "stereo-detail-actions" });
 		this.actionIcon(playRow, "play", "Play album", () => {
@@ -741,7 +1201,6 @@ export class LibraryPane extends Component {
 		songs.forEach((song, i) => {
 			this.trackRow(list, songs, i, {
 				showNumber: true,
-				hideArtist: true,
 				origin: {
 					kind: "album",
 					id: album.id,
@@ -785,7 +1244,6 @@ export class LibraryPane extends Component {
 		songs.forEach((song, i) => {
 			this.trackRow(list, songs, i, {
 				showNumber: false,
-				hideArtist: false,
 				origin: {
 					kind: "playlist",
 					id: playlist.id,
@@ -901,7 +1359,7 @@ export class LibraryPane extends Component {
 
 	// --- row/card builders ---
 
-	private albumCard(grid: HTMLElement, album: Album, hideArtist = false): void {
+	private albumCard(grid: HTMLElement, album: Album): void {
 		const card = grid.createDiv({ cls: "stereo-card" });
 		if (album.coverArt) {
 			card.createEl("img", {
@@ -916,10 +1374,14 @@ export class LibraryPane extends Component {
 			const placeholder = card.createDiv({ cls: "stereo-card-cover stereo-card-cover-empty" });
 			setIcon(placeholder, "music");
 		}
-		card.createDiv({ cls: "stereo-card-title", text: album.name });
-		if (!hideArtist) {
-			card.createDiv({ cls: "stereo-card-artist", text: album.artist ?? "" });
-		}
+		card.createDiv({
+			cls: "stereo-card-title",
+			text: albumLabelFor(album),
+		});
+		card.createDiv({
+			cls: "stereo-card-artist",
+			text: album.artist?.trim() || "Unknown artist",
+		});
 
 		card.addEventListener("click", () => {
 			this.push({ kind: "album", id: album.id, name: album.name });
@@ -982,7 +1444,7 @@ export class LibraryPane extends Component {
 		index: number,
 		options: {
 			showNumber: boolean;
-			hideArtist: boolean;
+			showPlayCount?: boolean;
 			/** Album/playlist this row belongs to, when the queue is replaced. */
 			origin?: QueueOrigin;
 			/** Present on playlist pages: removes this row from the playlist. */
@@ -999,10 +1461,16 @@ export class LibraryPane extends Component {
 		}
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
 		meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
-		if (!options.hideArtist) {
-			meta.createDiv({ cls: "stereo-list-row-sub", text: song.artist ?? "" });
-		}
+		meta.createDiv({ cls: "stereo-list-row-sub", text: songMeta(song) });
 		this.songHeart(row, song);
+		if (options.showPlayCount) {
+			const label = playCountLabel(song.playCount ?? 0);
+			row.createSpan({
+				cls: "stereo-list-row-plays",
+				text: label,
+				attr: { title: label },
+			});
+		}
 		if (song.duration) {
 			row.createSpan({
 				cls: "stereo-list-row-duration",
@@ -1537,4 +2005,14 @@ function formatDuration(totalSeconds: number): string {
 	const minutes = Math.floor(seconds / 60);
 	const rest = seconds % 60;
 	return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function playCountLabel(count: number): string {
+	return count === 1 ? "1 play" : `${count} plays`;
+}
+
+function createdTimestamp(value: string | undefined): number {
+	if (!value) return 0;
+	const time = Date.parse(value);
+	return Number.isFinite(time) ? time : 0;
 }

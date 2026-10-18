@@ -16,10 +16,31 @@ import {
 	serverLabel,
 	type ServerConfig,
 } from "./servers";
-import { SubsonicError } from "./subsonic";
+import { SubsonicError, type AlbumListType } from "./subsonic";
 
 /** What left-clicking a track row in the library does. */
 export type TrackClickAction = "play" | "addToQueue" | "none";
+
+/** Server album ordering plus client-side date, rating, and favorite sorts. */
+export type AlbumSort =
+	| AlbumListType
+	| "releaseDate"
+	| "rating"
+	| "favorites";
+
+/** Client-side ordering for the Library Tracks tab. */
+export type TrackSort =
+	| "title"
+	| "artist"
+	| "album"
+	| "newest"
+	| "oldest"
+	| "releaseYear"
+	| "releaseYearOldest"
+	| "rating"
+	| "favorites"
+	| "plays"
+	| "random";
 
 /** How the Now Playing screen presents the current track. */
 export type NowPlayingView =
@@ -101,6 +122,12 @@ export interface StereoSettings {
 	/** Legacy global share base; migrated into the first ServerConfig. */
 	shareBaseUrl?: string;
 	trackClickAction: TrackClickAction;
+	/** Album grid order used by the Library Albums tab. */
+	albumSort: AlbumSort;
+	/** Album order on an artist page. */
+	artistAlbumSort: AlbumSort;
+	/** Track order on the Library Tracks tab. */
+	trackSort: TrackSort;
 	/** Use the WAN address for Navidrome browser links; LAN when off. */
 	preferWanForBrowser: boolean;
 	/** Report plays back to the server so play counts stay accurate. */
@@ -176,6 +203,9 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	servers: [],
 	activeServerId: "",
 	trackClickAction: "play",
+	albumSort: "alphabeticalByName",
+	artistAlbumSort: "releaseDate",
+	trackSort: "title",
 	preferWanForBrowser: true,
 	scrobbleEnabled: true,
 	volumeControl: true,

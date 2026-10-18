@@ -1634,10 +1634,15 @@ body {
 	text-overflow: ellipsis;
 }
 
+.stereo-list-row-plays,
 .stereo-list-row-duration {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 	white-space: nowrap;
+}
+
+.stereo-list-row-plays {
+	flex: 0 0 auto;
 }
 
 .stereo-track-list {

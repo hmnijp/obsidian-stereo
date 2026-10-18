@@ -40,8 +40,12 @@ export interface Song {
 	duration?: number;
 	contentType?: string;
 	starred?: string;
-	/** Per-user star rating from OpenSubsonic/Navidrome, 1–5. */
+	/** Per-user star rating from OpenSubsonic/Navidrome, 1-5. */
 	userRating?: number;
+	/** Number of plays reported by the server. */
+	playCount?: number;
+	/** Date the track was added to the server library. */
+	created?: string;
 	/**
 	 * Direct playback URL. Set only for internet radio entries; regular tracks
 	 * stream via `streamUrl(id)`.
@@ -63,6 +67,12 @@ export interface ArtistIndex {
 	artist: Artist[];
 }
 
+export interface ItemDate {
+	year?: number;
+	month?: number;
+	day?: number;
+}
+
 export interface Album {
 	id: string;
 	name: string;
@@ -72,8 +82,11 @@ export interface Album {
 	songCount?: number;
 	duration?: number;
 	year?: number;
+	releaseDate?: ItemDate;
+	originalReleaseDate?: ItemDate;
 	genre?: string;
 	starred?: string;
+	userRating?: number;
 }
 
 export type AlbumListType =
@@ -647,9 +660,18 @@ export class SubsonicClient {
 	 */
 	async search3(
 		query: string,
-		counts: { artistCount: number; albumCount: number; songCount: number }
+		counts: { artistCount: number; albumCount: number; songCount: number },
+		offsets: {
+			artistOffset?: number;
+			albumOffset?: number;
+			songOffset?: number;
+		} = {}
 	): Promise<{ artists: Artist[]; albums: Album[]; songs: Song[] }> {
-		const body = await this.request("search3", { query, ...counts });
+		const params: Record<string, string | number> = { query, ...counts };
+		if (offsets.artistOffset) params.artistOffset = offsets.artistOffset;
+		if (offsets.albumOffset) params.albumOffset = offsets.albumOffset;
+		if (offsets.songOffset) params.songOffset = offsets.songOffset;
+		const body = await this.request("search3", params);
 		const payload = body.searchResult3 as
 			| {
 					artist?: Artist | Artist[];

@@ -1,6 +1,7 @@
 import { debounce, prepareFuzzySearch, setIcon } from "obsidian";
 import { createSongHeart } from "./favorite-button";
 import type { LibraryPane } from "./library";
+import { albumLabelFor, songMeta } from "./metadata";
 import type StereoPlugin from "./main";
 import type { Album, Artist, Song } from "./subsonic";
 
@@ -169,8 +170,14 @@ export class SearchPane {
 		const row = this.resultsEl.createDiv({ cls: "stereo-list-row" });
 		this.thumb(row, album.coverArt);
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
-		meta.createDiv({ cls: "stereo-list-row-title", text: album.name });
-		meta.createDiv({ cls: "stereo-list-row-sub", text: album.artist ?? "" });
+		meta.createDiv({
+			cls: "stereo-list-row-title",
+			text: albumLabelFor(album),
+		});
+		meta.createDiv({
+			cls: "stereo-list-row-sub",
+			text: album.artist?.trim() || "Unknown artist",
+		});
 		row.addEventListener("click", () => {
 			this.close();
 			this.options.openAlbum(album.id, album.name);
@@ -185,7 +192,7 @@ export class SearchPane {
 		this.thumb(row, song.coverArt);
 		const meta = row.createDiv({ cls: "stereo-list-row-meta" });
 		meta.createDiv({ cls: "stereo-list-row-title", text: song.title });
-		meta.createDiv({ cls: "stereo-list-row-sub", text: song.artist ?? "" });
+		meta.createDiv({ cls: "stereo-list-row-sub", text: songMeta(song) });
 		createSongHeart(
 			row,
 			song,

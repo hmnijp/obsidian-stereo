@@ -3,12 +3,12 @@ import {
 	Menu,
 	Notice,
 	WorkspaceLeaf,
-	requestUrl,
 	setIcon,
 } from "obsidian";
 import radioTowerSvg from "../radio-tower.svg";
 import boomboxSvg from "../boombox.svg";
 import stereoBoomboxSvg from "../stereo-boombox.svg";
+import { copyCoverToClipboard } from "./cover-clipboard";
 import { getLyrics, type Lyrics } from "./lyrics";
 import { createSongHeart, syncSongHeart, attachHeartRatingHover } from "./favorite-button";
 import {
@@ -24,6 +24,12 @@ import { LibraryPane } from "./library";
 import { PlaylistNameModal, PlaylistSharePickerModal } from "./modals";
 import { SearchPane } from "./search";
 import { shareTargetForPlaylist, shareTargetForSong } from "./share";
+import {
+	addCopyCoverItem,
+	addSongCopyItems,
+	addSongExternalItems,
+	addSongPlaylistItem,
+} from "./song-menu";
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
 import type { PlayerState } from "./player";
@@ -35,51 +41,6 @@ export const STEREO_VIEW_TYPE = "stereo-player";
 /** UTF-8-safe data URI for an inlined SVG (btoa would choke on non-Latin-1). */
 function svgDataUri(svg: string): string {
 	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-function loadImageElement(src: string): Promise<HTMLImageElement> {
-	return new Promise((resolve, reject) => {
-		const img = new Image();
-		img.onload = () => resolve(img);
-		img.onerror = () => reject(new Error("Could not load the image."));
-		img.src = src;
-	});
-}
-
-function canvasToBlob(canvas: HTMLCanvasElement, type: string): Promise<Blob> {
-	return new Promise((resolve, reject) => {
-		canvas.toBlob(
-			(blob) =>
-				blob ? resolve(blob) : reject(new Error("Could not encode the image.")),
-			type
-		);
-	});
-}
-
-/** Sniff the common raster formats so the original PNG bytes can be copied
- * directly even when the server sends a generic content type. */
-function sniffImageType(buffer: ArrayBuffer): string | null {
-	const b = new Uint8Array(buffer, 0, Math.min(12, buffer.byteLength));
-	if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) {
-		return "image/png";
-	}
-	if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
-	if (
-		b[0] === 0x52 &&
-		b[1] === 0x49 &&
-		b[2] === 0x46 &&
-		b[3] === 0x46 &&
-		b[8] === 0x57 &&
-		b[9] === 0x45 &&
-		b[10] === 0x42 &&
-		b[11] === 0x50
-	) {
-		return "image/webp";
-	}
-	if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) {
-		return "image/gif";
-	}
-	return null;
 }
 
 /** Queue is a full page like the others; it also has a tab, and the player's
@@ -462,75 +423,14 @@ export class StereoView extends ItemView {
 					})
 			);
 		}
-		const coverArt = this.plugin.player.getState().track?.coverArt;
-		if (this.plugin.settings.contextualCopyButtons) {
+		const track = this.plugin.player.getState().track;
+		if (this.plugin.settings.contextualCopyButtons && track) {
 			menu.addSeparator();
-			menu.addItem((item) =>
-				item
-					.setTitle("Copy cover")
-					.setIcon("image")
-					.setDisabled(!coverArt)
-					.onClick(() => {
-						if (coverArt) void this.copyCover(coverArt);
-					})
-			);
+			addCopyCoverItem(menu, track, (coverArt) => {
+				void copyCoverToClipboard(this.plugin.client, coverArt);
+			});
 		}
 		menu.showAtMouseEvent(evt);
-	}
-
-	/** Copy the track cover to the image clipboard. A PNG original is copied
-	 * byte-for-byte; other formats (usually JPEG) are decoded and re-encoded
-	 * losslessly as PNG, because Chromium's clipboard only accepts PNG. */
-	private async copyCover(coverArt: string): Promise<void> {
-		let objectUrl: string | null = null;
-		try {
-			const response = await requestUrl({
-				url: this.plugin.client.coverArtUrl(coverArt),
-			});
-			const bytes = response.arrayBuffer;
-			const headerType = (response.headers["content-type"] ?? "")
-				.split(";")[0]
-				?.trim()
-				.toLowerCase() ?? "";
-			const type = sniffImageType(bytes) ?? headerType;
-			const canCopyOriginal =
-				type === "image/png" ||
-				(type === "image/jpeg" &&
-					typeof ClipboardItem !== "undefined" &&
-					typeof ClipboardItem.supports === "function" &&
-					ClipboardItem.supports("image/jpeg"));
-			if (canCopyOriginal) {
-				await this.writeClipboardImage(new Blob([bytes], { type }), type);
-				return;
-			}
-
-			const source = new Blob([bytes], {
-				type: type.startsWith("image/") ? type : "image/jpeg",
-			});
-			objectUrl = URL.createObjectURL(source);
-			const img = await loadImageElement(objectUrl);
-			const canvas = document.createElement("canvas");
-			canvas.width = Math.max(1, img.naturalWidth);
-			canvas.height = Math.max(1, img.naturalHeight);
-			const ctx = canvas.getContext("2d");
-			if (!ctx) throw new Error("Could not create a 2D canvas.");
-			ctx.drawImage(img, 0, 0);
-			const png = await canvasToBlob(canvas, "image/png");
-			await this.writeClipboardImage(png, "image/png");
-		} catch {
-			new Notice("Could not copy the cover to the clipboard.");
-		} finally {
-			if (objectUrl) URL.revokeObjectURL(objectUrl);
-		}
-	}
-
-	private async writeClipboardImage(blob: Blob, type: string): Promise<void> {
-		if (typeof ClipboardItem === "undefined") {
-			throw new Error("Image clipboard is not available.");
-		}
-		await navigator.clipboard.write([
-			new ClipboardItem({ [type]: blob }),
-		]);
 	}
 
 	/** Right-click menu on the track info: playlist actions plus optional copy
@@ -574,7 +474,7 @@ export class StereoView extends ItemView {
 
 		if (canAddSong) {
 			menu.addSeparator();
-			this.addSongNavidromeItems(menu, track);
+			addSongExternalItems(menu, this.plugin, track);
 		}
 
 		if (!copy) {
@@ -582,37 +482,11 @@ export class StereoView extends ItemView {
 			return;
 		}
 
-		const artist = track.artist?.trim() ?? "";
-		const title = track.title?.trim() ?? "";
-		const album = track.album?.trim() ?? "";
-		const entries: { label: string; parts: string[] }[] = [
-			{ label: "Copy artist", parts: [artist] },
-			{ label: "Copy artist - track", parts: [artist, title] },
-			{ label: "Copy artist - album - track", parts: [artist, album, title] },
-		];
-
 		menu.addSeparator();
-		for (const entry of entries) {
-			const text = entry.parts.filter(Boolean).join(" - ");
-			const complete = entry.parts.every(Boolean);
-			menu.addItem((item) =>
-				item
-					.setTitle(entry.label)
-					.setIcon("copy")
-					.setDisabled(!complete)
-					.onClick(() => this.copyToClipboard(text))
-			);
-		}
-		const coverArt = track.coverArt;
-		menu.addItem((item) =>
-			item
-				.setTitle("Copy cover")
-				.setIcon("image")
-				.setDisabled(!coverArt)
-				.onClick(() => {
-					if (coverArt) void this.copyCover(coverArt);
-				})
-		);
+		addSongCopyItems(menu, track, true);
+		addCopyCoverItem(menu, track, (coverArt) => {
+			void copyCoverToClipboard(this.plugin.client, coverArt);
+		});
 		menu.showAtMouseEvent(evt);
 	}
 
@@ -632,59 +506,13 @@ export class StereoView extends ItemView {
 		kind: "album" | "playlist",
 		id: string
 	): void {
-		void (async () => {
-			let songs: Song[];
-			try {
-				songs =
-					kind === "album"
-						? (await this.plugin.client.getAlbum(id)).songs
-						: (await this.plugin.client.getPlaylist(id)).songs;
-			} catch {
-				new Notice(
-					kind === "album"
-						? "Could not load the album from the server."
-						: "Could not load the playlist from the server."
-				);
-				return;
-			}
-			if (songs.length === 0) {
-				new Notice(
-					kind === "album"
-						? "This album has no tracks."
-						: "This playlist is empty."
-				);
-				return;
-			}
-			await this.library.addToPlaylist(songs);
-		})();
+		void this.plugin.addCollectionToPlaylist(kind, id);
 	}
 
 	private copyToClipboard(text: string): void {
 		void navigator.clipboard.writeText(text).catch(() => {
 			new Notice("Could not copy to the clipboard.");
 		});
-	}
-
-	/** Shared Navidrome entries for current-track and queue-row menus. */
-	private addSongNavidromeItems(menu: Menu, song: Song): void {
-		const albumId = song.albumId;
-		menu.addItem((item) =>
-			item
-				.setTitle("Open album in Navidrome")
-				.setIcon("external-link")
-				.setDisabled(!albumId)
-				.onClick(() => {
-					if (albumId) this.plugin.openNavidromeAlbum(albumId);
-				})
-		);
-		menu.addItem((item) =>
-			item
-				.setTitle("Download track to clipboard")
-				.setIcon("download")
-				.onClick(() => {
-					void this.plugin.downloadTrack(song);
-				})
-		);
 	}
 
 	/** The effective Now Playing view for a track. Internet-radio streams have no
@@ -720,6 +548,23 @@ export class StereoView extends ItemView {
 		this.library?.setSharingEnabled(enabled);
 		this.queueShareButton?.toggleClass("stereo-hidden", !enabled);
 		this.trackShareButton?.toggleClass("stereo-hidden", !this.shareButtonVisible());
+	}
+
+	/** Drop the cached playlist list after a status-bar playlist edit. */
+	invalidatePlaylists(): void {
+		this.library?.invalidatePlaylists();
+	}
+
+	/** Open an artist page, used by the status-bar mini player. */
+	openArtistInLibrary(id: string, name: string): void {
+		this.setActiveTab("library");
+		this.library?.openArtist(id, name);
+	}
+
+	/** Open an album page, used by the status-bar mini player. */
+	openAlbumInLibrary(id: string, name: string): void {
+		this.setActiveTab("library");
+		this.library?.openAlbum(id, name);
 	}
 
 	private shareButtonVisible(): boolean {
@@ -1770,19 +1615,15 @@ export class StereoView extends ItemView {
 				});
 		});
 		menu.addSeparator();
-		this.addSongPlaylistItem(menu, song, false);
+		if (song) addSongPlaylistItem(menu, this.plugin, song);
 		if (song && !song.streamUrl) {
 			menu.addSeparator();
-			this.addSongNavidromeItems(menu, song);
+			addSongExternalItems(menu, this.plugin, song);
 		}
-		if (
-			this.plugin.settings.contextualCopyButtons ||
-			this.canShareSong(song)
-		) {
+		if (song && this.plugin.settings.contextualCopyButtons) {
 			menu.addSeparator();
+			addSongCopyItems(menu, song);
 		}
-		this.addSongCopyItems(menu, song, false);
-		this.addSongShareItem(menu, song, false);
 		menu.showAtPosition(position);
 	}
 
@@ -1792,91 +1633,19 @@ export class StereoView extends ItemView {
 		if (!song) return;
 		const addable = !song.streamUrl;
 		const copy = this.plugin.settings.contextualCopyButtons;
-		const share = this.canShareSong(song);
-		if (!addable && !copy && !share) return;
+		if (!addable && !copy) return;
 		evt.preventDefault();
 		const menu = new Menu();
-		this.addSongPlaylistItem(menu, song, false);
+		addSongPlaylistItem(menu, this.plugin, song);
 		if (addable) {
 			menu.addSeparator();
-			this.addSongNavidromeItems(menu, song);
+			addSongExternalItems(menu, this.plugin, song);
 		}
-		if (copy || share) menu.addSeparator();
-		this.addSongCopyItems(menu, song, false);
-		this.addSongShareItem(menu, song, false);
+		if (copy) {
+			menu.addSeparator();
+			addSongCopyItems(menu, song);
+		}
 		menu.showAtMouseEvent(evt);
-	}
-
-	private canShareSong(song: Song | undefined): boolean {
-		return (
-			!!song &&
-			!song.streamUrl &&
-			this.plugin.settings.sharingEnabled
-		);
-	}
-
-	private addSongPlaylistItem(
-		menu: Menu,
-		song: Song | undefined,
-		separator: boolean
-	): void {
-		if (!song) return;
-		if (separator) menu.addSeparator();
-		menu.addItem((item) =>
-			item
-				.setTitle("Add to playlist…")
-				.setIcon("list-music")
-				.setDisabled(!!song.streamUrl)
-				.onClick(() => {
-					void this.library.addToPlaylist([song]);
-				})
-		);
-	}
-
-	private addSongShareItem(
-		menu: Menu,
-		song: Song | undefined,
-		separator: boolean
-	): void {
-		if (!this.canShareSong(song) || !song) return;
-		if (separator) menu.addSeparator();
-		menu.addItem((item) =>
-			item
-				.setTitle("Share…")
-				.setIcon("share-2")
-				.onClick(() => {
-					this.plugin.openShare(shareTargetForSong(song));
-				})
-		);
-	}
-
-	/** Shared copy entries for queue rows (editor and inline player). */
-	private addSongCopyItems(
-		menu: Menu,
-		song: Song | undefined,
-		separator: boolean
-	): void {
-		if (!this.plugin.settings.contextualCopyButtons) return;
-		const artist = song?.artist?.trim() ?? "";
-		const title = song?.title?.trim() ?? "";
-		const album = song?.album?.trim() ?? "";
-		const artistTrack = [artist, title].filter(Boolean).join(" - ");
-		const artistAlbumTrack = [artist, album, title].filter(Boolean).join(" - ");
-		if (separator) menu.addSeparator();
-		menu.addItem((item) =>
-			item
-				.setTitle("Copy artist - track")
-				.setIcon("copy")
-				.setDisabled(!artist || !title)
-				.onClick(() => this.copyToClipboard(artistTrack))
-		);
-		menu.addItem((item) =>
-			item
-				.setTitle("Copy artist - album - track")
-				.setIcon("copy")
-				.setDisabled(!artist || !album || !title)
-				.onClick(() => this.copyToClipboard(artistAlbumTrack))
-		);
 	}
 
 	private buildMiniPlayer(root: HTMLElement): void {

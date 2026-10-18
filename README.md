@@ -37,6 +37,15 @@ your notes.
   current track. The command palette can also open the player in a separate
   desktop window, open the current album in the Navidrome web UI, or download
   the current track and copy the file to the system clipboard.
+- The status-bar play/pause button mirrors the player's blue play and red pause
+  states. Right-click it for a mini player with cover art, linked artist and
+  album, transport and shuffle, an expandable queue, rating and favorite
+  controls, track/album/playlist sharing, add-to-playlist, clipboard download,
+  player and pop-out shortcuts, and server switching. Its visibility is controlled by
+  **Workspace → Status bar player**; **Status bar transport controls** shows
+  previous, play/pause, and next together in the same status-bar item,
+  **Status bar servers** toggles the server switcher inside the mini player,
+  and **Status bar player scale** resizes the whole popup from 50% to 200%.
 - Right-click a track, album, or playlist to open it in Navidrome. Browser
   links prefer the server's WAN address; turn off **Server → Prefer WAN for
   browser links** to use LAN first. Track menus also download the original file
@@ -116,7 +125,8 @@ your notes.
 Settings also cover player buttons (random, repeat, shuffle, favorite, add to
 playlist, station, share, Navidrome, download, volume, and whether
 repeat/shuffle sit in the transport row), browser link address preference,
-sidebar pane restoration, star ratings and cover overlays,
+sidebar pane restoration, the status-bar player, star ratings and cover
+overlays,
 track click behavior, sharing, Now Playing view, lyrics font, and search
 tuning.
 

@@ -1,5 +1,10 @@
 /* Stereo — all classes prefixed `stereo-`; colors via Obsidian CSS variables. */
 
+body {
+	/* Navidrome's blue, used for the play glyph in every Stereo player. */
+	--stereo-play-color: #1e88e5;
+}
+
 /* Buttons are flat glyphs, not raised cards — they all carry Obsidian's
    native `clickable-icon` class, which themes style consistently. These rules
    only add what that treatment lacks. */
@@ -774,8 +779,8 @@
 	height: 34px;
 }
 
-/* Muted state colors: pause is red, play is green. Opacity keeps them calm
-   in both light and dark themes without dimming the button chrome. */
+/* Muted state colors: pause is red, play is Navidrome blue. Opacity keeps
+   them calm in both light and dark themes without dimming the button chrome. */
 .stereo-play-toggle:not(:disabled) svg {
 	opacity: 0.7;
 }
@@ -785,7 +790,7 @@
 }
 
 .stereo-play-toggle:not(.stereo-playing) {
-	color: var(--color-green);
+	color: var(--stereo-play-color, #1e88e5);
 }
 
 .stereo-play-toggle:not(:disabled):hover svg {
@@ -2053,4 +2058,455 @@
 .stereo-server-add {
 	align-self: flex-start;
 	margin-top: 2px;
+}
+
+/* Status-bar player */
+
+.status-bar .stereo-status-bar-item {
+	display: flex;
+	align-items: center;
+	height: 100%;
+	padding: 0;
+}
+
+.stereo-status-bar-button {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 24px;
+	height: 100%;
+	padding: 0;
+	border: none;
+	background: transparent;
+	box-shadow: none;
+}
+
+.stereo-status-bar-button svg {
+	width: 20px;
+	height: 20px;
+}
+
+.stereo-status-transport {
+	display: flex;
+	align-items: center;
+	height: 100%;
+	gap: 1px;
+}
+
+.stereo-status-transport .stereo-status-bar-button {
+	width: 24px;
+	height: 100%;
+}
+
+.stereo-status-transport .stereo-status-bar-button svg {
+	width: 20px;
+	height: 20px;
+}
+
+.stereo-status-transport .stereo-status-nav {
+	color: var(--stereo-play-color, #1e88e5);
+}
+
+.stereo-status-transport .stereo-play-toggle:not(.stereo-playing) {
+	color: var(--stereo-play-color, #1e88e5);
+}
+
+.stereo-status-transport .stereo-play-toggle.stereo-playing {
+	color: var(--color-red);
+}
+
+.stereo-status-transport .stereo-status-bar-button[aria-disabled="true"] {
+	color: var(--text-faint);
+	cursor: default;
+}
+
+.stereo-status-bar-button.stereo-status-idle {
+	color: var(--text-muted);
+}
+
+.stereo-status-bar-button.stereo-play-toggle:not(.stereo-playing) {
+	color: var(--stereo-play-color, #1e88e5);
+}
+
+.stereo-status-bar-button.stereo-play-toggle.stereo-playing {
+	color: var(--color-red);
+}
+
+.stereo-status-popup {
+	position: fixed;
+	z-index: var(--layer-menu, 1000);
+	display: flex;
+	flex-direction: column;
+	gap: var(--size-4-1);
+	width: min(280px, calc(100vw - 16px));
+	max-height: min(90vh, 720px);
+	overflow-y: auto;
+	padding: var(--size-4-3);
+	box-sizing: border-box;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-normal);
+	transform: scale(var(--stereo-status-scale, 1));
+	transform-origin: bottom left;
+}
+
+.stereo-status-queue {
+	padding-bottom: var(--size-2-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.stereo-status-queue-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 222px;
+	overflow-y: auto;
+}
+
+.stereo-status-queue-scroll {
+	height: 222px;
+	max-height: 222px;
+	overflow-y: auto;
+}
+
+.stereo-status-queue-row {
+	display: flex;
+	flex: 0 0 30px;
+	align-items: center;
+	gap: var(--size-4-2);
+	height: 30px;
+	min-height: 30px;
+	padding: 0 4px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	color: var(--text-normal);
+	box-sizing: border-box;
+	overflow: hidden;
+}
+
+.stereo-status-queue-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+.stereo-status-queue-row:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.stereo-status-queue-current {
+	color: var(--interactive-accent);
+	background: var(--background-modifier-hover);
+}
+
+.stereo-status-queue-number {
+	flex: 0 0 auto;
+	width: 1.6em;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+	text-align: right;
+}
+
+.stereo-status-queue-meta {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	line-height: 1.15;
+}
+
+.stereo-status-queue-title {
+	overflow: hidden;
+	font-size: var(--font-ui-small);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stereo-status-queue-artist {
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stereo-status-queue-empty {
+	padding: var(--size-4-2) 0;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
+	text-align: center;
+}
+
+.stereo-status-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+
+.stereo-status-cover {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	width: 44px;
+	height: 44px;
+	overflow: hidden;
+	border-radius: var(--radius-s);
+	background: var(--background-secondary);
+}
+
+.stereo-status-cover-img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.stereo-status-cover-placeholder {
+	display: flex;
+	color: var(--text-faint);
+}
+
+.stereo-status-cover-placeholder svg {
+	width: 20px;
+	height: 20px;
+}
+
+.stereo-status-header-text {
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+	min-width: 0;
+}
+
+.stereo-status-popup-title {
+	overflow: hidden;
+	color: var(--interactive-accent);
+	font-size: var(--font-ui-small);
+	font-weight: 600;
+	line-height: 1.25;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stereo-status-popup-title-empty {
+	color: var(--text-muted);
+}
+
+.stereo-status-popup-artist,
+.stereo-status-popup-album {
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: 1.25;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stereo-status-popup-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-1);
+}
+
+.stereo-status-popup-transport {
+	gap: var(--size-4-1);
+}
+
+.stereo-status-transport-side {
+	display: flex;
+	align-items: center;
+	flex: 1 1 0;
+}
+
+.stereo-status-transport-left {
+	justify-content: flex-start;
+}
+
+.stereo-status-transport-right {
+	justify-content: flex-end;
+}
+
+.stereo-status-transport-main {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+	gap: var(--size-4-3);
+}
+
+.stereo-status-popup-transport .stereo-button svg {
+	width: 18px;
+	height: 18px;
+}
+
+.stereo-status-popup-transport .stereo-play-toggle svg {
+	width: 24px;
+	height: 24px;
+}
+
+.stereo-status-popup-rating {
+	justify-content: center;
+	gap: var(--size-4-2);
+}
+
+.stereo-status-stars {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.stereo-status-stars .stereo-rating-star {
+	width: 22px;
+	height: 22px;
+}
+
+.stereo-status-stars .stereo-rating-star svg {
+	width: 17px;
+	height: 17px;
+}
+
+.stereo-status-popup-extras {
+	justify-content: flex-start;
+	gap: 2px;
+	flex-wrap: nowrap;
+	padding-top: var(--size-2-2);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.stereo-status-extras-main,
+.stereo-status-extras-open {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	min-width: 0;
+}
+
+.stereo-status-extras-main {
+	flex: 0 1 auto;
+}
+
+.stereo-status-extras-open {
+	flex: 0 1 auto;
+	margin-left: auto;
+}
+
+.stereo-status-popup-button {
+	width: 28px;
+	height: 28px;
+	padding: 0;
+}
+
+.stereo-status-popup-button svg {
+	width: 16px;
+	height: 16px;
+}
+
+.stereo-status-popup-extras .stereo-status-popup-button {
+	flex: 0 1 24px;
+	width: 24px;
+	height: 24px;
+	min-width: 18px;
+}
+
+.stereo-status-popup-extras .stereo-status-popup-button svg {
+	width: 15px;
+	height: 15px;
+}
+
+.stereo-status-volume-control {
+	display: flex;
+	flex: 0 1 24px;
+	width: 24px;
+	height: 24px;
+	min-width: 18px;
+}
+
+.stereo-status-volume-control > .stereo-status-popup-button {
+	flex: 1 1 auto;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+}
+
+.stereo-status-volume-row {
+	display: flex;
+	align-items: center;
+	padding: 0 2px;
+}
+
+.stereo-status-volume-slider {
+	width: 100%;
+	margin: 0;
+	accent-color: var(--interactive-accent);
+}
+
+.stereo-status-servers {
+	margin-top: var(--size-2-1);
+	padding-top: var(--size-2-2);
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.stereo-status-servers-heading {
+	padding: 0 2px var(--size-2-1);
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.stereo-status-server-list {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-height: 150px;
+	overflow-y: auto;
+}
+
+.stereo-status-server-row {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	padding: 3px 6px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	color: var(--text-normal);
+}
+
+.stereo-status-server-row:hover {
+	background: var(--background-modifier-hover);
+}
+
+.stereo-status-server-row:focus-visible {
+	outline: 2px solid var(--interactive-accent);
+	outline-offset: 1px;
+}
+
+.stereo-status-server-dot {
+	flex: 0 0 auto;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.7;
+}
+
+.stereo-status-server-name {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.stereo-status-server-active {
+	color: var(--color-green);
+}
+
+.stereo-status-server-error {
+	color: var(--color-red);
+}
+
+.stereo-status-server-empty {
+	padding: 2px 6px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-small);
 }

@@ -26,7 +26,9 @@ import {
 	type ShareTarget,
 } from "./share";
 import type { StationSeed } from "./station";
-import { Song, SubsonicClient } from "./subsonic";
+import { PlaylistNameModal, PlaylistPickerModal } from "./modals";
+import { StatusBarPlayer } from "./status-bar";
+import { Song, SubsonicClient, type Playlist } from "./subsonic";
 import { downloadTrackToClipboard } from "./track-download";
 import { STEREO_VIEW_TYPE, StereoView } from "./view";
 
@@ -103,6 +105,7 @@ export default class StereoPlugin extends Plugin {
 		1000,
 		true
 	);
+	private statusBar: StatusBarPlayer | null = null;
 	private openViews: SavedView[] = [];
 	private lastViewSide: Side = "right";
 	private viewsInitialized = false;
@@ -136,6 +139,11 @@ export default class StereoPlugin extends Plugin {
 
 		this.registerView(STEREO_VIEW_TYPE, (leaf) => new StereoView(leaf, this));
 		this.addSettingTab(new StereoSettingTab(this.app, this));
+
+		const statusBarItem = this.addStatusBarItem();
+		if (statusBarItem) {
+			this.statusBar = new StatusBarPlayer(this, statusBarItem);
+		}
 
 		this.addRibbonIcon("boom-box", "Open Stereo", () => {
 			void this.activateView();
@@ -204,6 +212,8 @@ export default class StereoPlugin extends Plugin {
 			if (current.length > 0) this.openViews = current;
 		}
 		this.connection.stop();
+		this.statusBar?.destroy();
+		this.statusBar = null;
 		this.player.destroy();
 		this.favorites.destroy();
 		this.ratings.destroy();
@@ -265,6 +275,117 @@ export default class StereoPlugin extends Plugin {
 	/** Open the share-link manager. */
 	openShares(): void {
 		new SharesModal(this.app, this).open();
+	}
+
+	/** Open an artist page in the right-sidebar player. */
+	async openArtistInLibrary(id: string, name: string): Promise<void> {
+		await this.activateView("right");
+		this.firstStereoView()?.openArtistInLibrary(id, name);
+	}
+
+	/** Open an album page in the right-sidebar player. */
+	async openAlbumInLibrary(id: string, name: string): Promise<void> {
+		await this.activateView("right");
+		this.firstStereoView()?.openAlbumInLibrary(id, name);
+	}
+
+	private firstStereoView(): StereoView | null {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) return leaf.view;
+		}
+		return null;
+	}
+
+	/** "Add to playlist…" flow shared by the player, status bar, and library. */
+	async addToPlaylist(songs: Song[]): Promise<void> {
+		const addable = songs.filter((song) => !song.streamUrl);
+		if (addable.length === 0) {
+			new Notice("There are no tracks to add to a playlist.");
+			return;
+		}
+		let playlists: Playlist[];
+		try {
+			playlists = await this.client.getPlaylists();
+		} catch {
+			new Notice("Could not load playlists from the server.");
+			return;
+		}
+		const ids = addable.map((song) => song.id);
+		const added = `Added ${
+			addable.length === 1 ? "1 track" : `${addable.length} tracks`
+		}`;
+		new PlaylistPickerModal(this.app, playlists, (choice) => {
+			if (choice.kind === "new") {
+				new PlaylistNameModal(
+					this.app,
+					(name) => {
+						void this.managePlaylist(`${added} to "${name}".`, () =>
+							this.client.createPlaylist(name, ids)
+						);
+					},
+					{ title: "New playlist", cta: "Create" }
+				).open();
+				return;
+			}
+			void this.managePlaylist(
+				`${added} to "${choice.playlist.name}".`,
+				() =>
+					this.client.updatePlaylist(choice.playlist.id, {
+						addSongIds: ids,
+					})
+			);
+		}).open();
+	}
+
+	/** Load an album or playlist and pass its tracks to the playlist picker. */
+	async addCollectionToPlaylist(
+		kind: "album" | "playlist",
+		id: string
+	): Promise<void> {
+		let songs: Song[];
+		try {
+			songs =
+				kind === "album"
+					? (await this.client.getAlbum(id)).songs
+					: (await this.client.getPlaylist(id)).songs;
+		} catch {
+			new Notice(
+				kind === "album"
+					? "Could not load the album from the server."
+					: "Could not load the playlist from the server."
+			);
+			return;
+		}
+		if (songs.length === 0) {
+			new Notice(
+				kind === "album"
+					? "This album has no tracks."
+					: "This playlist is empty."
+			);
+			return;
+		}
+		await this.addToPlaylist(songs);
+	}
+
+	private async managePlaylist(
+		successNotice: string,
+		action: () => Promise<void>
+	): Promise<boolean> {
+		try {
+			await action();
+		} catch {
+			new Notice("Could not update the playlist on the server.");
+			return false;
+		}
+		new Notice(successNotice);
+		this.refreshPlaylistCaches();
+		return true;
+	}
+
+	private refreshPlaylistCaches(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) leaf.view.invalidatePlaylists();
+		}
 	}
 
 	/** Open an album in the Navidrome web UI. */
@@ -411,6 +532,12 @@ export default class StereoPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) leaf.view.syncShareUi();
 		}
+	}
+
+	/** Apply the status-bar visibility and layout toggles immediately. */
+	applyStatusBarSetting(): void {
+		this.statusBar?.setVisible(this.settings.showStatusBarPlayer);
+		this.statusBar?.refresh();
 	}
 
 	/** When the volume control is disabled, output stays at 100% and only the
@@ -719,14 +846,13 @@ export default class StereoPlugin extends Plugin {
 		}
 	}
 
-	async activateView(): Promise<void> {
+	async activateView(side: Side = this.lastViewSide): Promise<void> {
 		const { workspace } = this.app;
 
 		let leaf: WorkspaceLeaf | null =
 			workspace.getLeavesOfType(STEREO_VIEW_TYPE)[0] ?? null;
 
 		if (!leaf) {
-			const side = this.lastViewSide;
 			leaf =
 				side === "left"
 					? workspace.getLeftLeaf(true)

@@ -3,7 +3,6 @@ import type { HistoryEntry } from "./history";
 import {
 	ConfirmModal,
 	PlaylistNameModal,
-	PlaylistPickerModal,
 	RadioStationModal,
 } from "./modals";
 import { createSongHeart } from "./favorite-button";
@@ -1081,16 +1080,19 @@ export class LibraryPane extends Component {
 					void this.addToPlaylist([song]);
 				})
 		);
-		if (this.plugin.settings.sharingEnabled && !song.streamUrl) {
-			menu.addItem((item) =>
-				item.setTitle("Share…").setIcon("share-2").onClick(() => {
-					this.plugin.openShare(shareTargetForSong(song));
-				})
-			);
-		}
 		if (!song.streamUrl) {
 			const albumId = song.albumId;
 			menu.addSeparator();
+			if (this.plugin.settings.sharingEnabled) {
+				menu.addItem((item) =>
+					item
+						.setTitle("Share…")
+						.setIcon("share-2")
+						.onClick(() => {
+							this.plugin.openShare(shareTargetForSong(song));
+						})
+				);
+			}
 			menu.addItem((item) =>
 				item
 					.setTitle("Open album in Navidrome")
@@ -1453,41 +1455,7 @@ export class LibraryPane extends Component {
 
 	/** "Add to playlist…" flow shared by lists, queues, and the player. */
 	async addToPlaylist(songs: Song[]): Promise<void> {
-		const addable = songs.filter((song) => !song.streamUrl);
-		if (addable.length === 0) {
-			new Notice("There are no tracks to add to a playlist.");
-			return;
-		}
-		let playlists: Playlist[];
-		try {
-			playlists = await this.plugin.client.getPlaylists();
-		} catch {
-			new Notice("Could not load playlists from the server.");
-			return;
-		}
-		const ids = addable.map((song) => song.id);
-		const added = `Added ${
-			addable.length === 1 ? "1 track" : `${addable.length} tracks`
-		}`;
-		new PlaylistPickerModal(this.plugin.app, playlists, (choice) => {
-			if (choice.kind === "new") {
-				new PlaylistNameModal(
-					this.plugin.app,
-					(name) => {
-						void this.managePlaylist(`${added} to "${name}".`, () =>
-							this.plugin.client.createPlaylist(name, ids)
-						);
-					},
-					{ title: "New playlist", cta: "Create" }
-				).open();
-				return;
-			}
-			void this.managePlaylist(`${added} to "${choice.playlist.name}".`, () =>
-				this.plugin.client.updatePlaylist(choice.playlist.id, {
-					addSongIds: ids,
-				})
-			);
-		}).open();
+		await this.plugin.addToPlaylist(songs);
 	}
 
 	/** Run a playlist write against the server, then refresh cached lists. */

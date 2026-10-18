@@ -129,6 +129,16 @@ export interface StereoSettings {
 	repeatShuffleInTransport: boolean;
 	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
 	restoreOpenViews: boolean;
+	/** Show the play/pause control in Obsidian's status bar. */
+	showStatusBarPlayer: boolean;
+	/** Show previous, play/pause, and next together in the status bar. */
+	showStatusBarTransport: boolean;
+	/** Show the server switcher in the status-bar mini player. */
+	showStatusBarServers: boolean;
+	/** Scale of the status-bar mini player, in percent. */
+	statusBarScale: number;
+	/** Persisted open state of the status-bar mini-player queue. */
+	statusBarQueueOpen: boolean;
 	/** Show 1–5 star ratings in track lists. */
 	showRating: boolean;
 	/** Show rating and favorite controls in the album-art corners. */
@@ -180,6 +190,11 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showDownloadButton: true,
 	repeatShuffleInTransport: false,
 	restoreOpenViews: true,
+	showStatusBarPlayer: true,
+	showStatusBarTransport: false,
+	showStatusBarServers: true,
+	statusBarScale: 100,
+	statusBarQueueOpen: false,
 	showRating: false,
 	showArtOverlays: true,
 	showRatingButton: true,
@@ -506,6 +521,36 @@ export class StereoSettingTab extends PluginSettingTab {
 						desc: "Reopen every Stereo pane that was open in the left or right sidebar when the plugin was disabled. Obsidian already restores the layout after a normal app restart.",
 						control: { type: "toggle", key: "restoreOpenViews" },
 					},
+					{
+						name: "Status bar player",
+						desc: "Show the play/pause icon in Obsidian's status bar. Right-click it for a mini player.",
+						control: { type: "toggle", key: "showStatusBarPlayer" },
+					},
+					{
+						name: "Status bar transport controls",
+						desc: "Show previous, play/pause, and next together in the status bar. When off, only the play/pause button is shown.",
+						control: { type: "toggle", key: "showStatusBarTransport" },
+					},
+					{
+						name: "Status bar servers",
+						desc: "Show the server switcher at the bottom of the status-bar mini player.",
+						control: { type: "toggle", key: "showStatusBarServers" },
+					},
+					{
+						name: "Status bar player scale",
+						desc: "Scale the status-bar mini player and all of its content. 100% is the default.",
+						render: (setting) =>
+							this.stepper(
+								setting,
+								{ min: 50, max: 200, step: 5 },
+								() => this.plugin.settings.statusBarScale,
+								async (value) => {
+									this.plugin.settings.statusBarScale = value;
+									await this.plugin.saveSettings();
+									this.plugin.applyStatusBarSetting();
+								}
+							),
+					},
 				],
 			},
 			{
@@ -656,6 +701,13 @@ export class StereoSettingTab extends PluginSettingTab {
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
 		await this.plugin.saveSettings();
 		if (key === "volumeControl") this.plugin.applyVolumeControlSetting();
+		if (
+			key === "showStatusBarPlayer" ||
+			key === "showStatusBarTransport" ||
+			key === "showStatusBarServers"
+		) {
+			this.plugin.applyStatusBarSetting();
+		}
 		if (key === "sharingEnabled") this.plugin.syncShareUi();
 		if (VIEW_REFRESH_KEYS.has(key)) this.plugin.refreshNowPlayingViews();
 		if (key === "lyricsAlign") this.applyLyricsPreview?.();

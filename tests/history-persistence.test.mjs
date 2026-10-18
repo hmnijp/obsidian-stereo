@@ -14,6 +14,7 @@ const result = await build({
 				async loadData() { return this.initial; }
 				async saveData(data) { this.writes.push(structuredClone(data)); }
 				registerView() {} addSettingTab() {} addRibbonIcon() {} addCommand() {}
+				addStatusBarItem() { return null; }
 			}
 			export class Notice {}
 			export class WorkspaceLeaf {
@@ -26,7 +27,7 @@ const result = await build({
 				constructor() {}
 			}
 			export class Modal {} export class Setting {} export class FuzzySuggestModal {}
-			export class ButtonComponent {} export function setIcon() {}
+			export class ButtonComponent {} export class Menu {} export function setIcon() {}
 			export function debounce(fn) { const call = () => { call.pending = true; }; call.cancel = () => { call.pending = false; }; call.run = () => { if (call.pending) fn(); call.pending = false; }; return call; }
 			export function requestUrl() { throw new Error("Unexpected network request"); }
 		` }));

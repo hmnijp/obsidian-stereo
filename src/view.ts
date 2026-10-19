@@ -34,7 +34,11 @@ import {
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
 import { WHEEL_SEEK_SECONDS, type PlayerState } from "./player";
-import { NOW_PLAYING_VIEWS, type NowPlayingView } from "./settings";
+import {
+	NOW_PLAYING_VIEWS,
+	normalizeExtrasOrder,
+	type NowPlayingView,
+} from "./settings";
 import type { Song } from "./subsonic";
 import { resolveThemeColor } from "./theme";
 
@@ -621,6 +625,8 @@ export class StereoView extends ItemView {
 		const settings = this.plugin.settings;
 		this.repeatButton?.toggleClass("stereo-hidden", !settings.showRepeatButton);
 		this.shuffleButton?.toggleClass("stereo-hidden", !settings.showShuffleButton);
+		this.queueButton?.toggleClass("stereo-hidden", !settings.showQueueButton);
+		this.lyricsButton?.toggleClass("stereo-hidden", !settings.showLyricsButton);
 		this.randomButton?.toggleClass("stereo-hidden", !settings.showRandomButton);
 		this.stationButton?.toggleClass("stereo-hidden", !settings.showStationButton);
 		this.playlistButton?.toggleClass("stereo-hidden", !settings.showPlaylistButton);
@@ -642,6 +648,46 @@ export class StereoView extends ItemView {
 			"stereo-hidden",
 			!settings.showNewWindowButton
 		);
+		// A hidden panel button leaves no way to close its panel, so the panel
+		// follows its button.
+		if (!settings.showQueueButton && this.queueVisible) {
+			this.queueVisible = false;
+			this.applyArtPanels();
+		}
+		if (!settings.showLyricsButton && this.lyricsVisible) {
+			this.lyricsVisible = false;
+			this.applyArtPanels();
+		}
+		this.applyExtrasOrder();
+	}
+
+	/** Lay the extras row out in the order picked in settings. */
+	applyExtrasOrder(): void {
+		if (!this.extrasRow) return;
+		const buttons: Record<string, HTMLElement | null | undefined> = {
+			repeat: this.repeatButton,
+			shuffle: this.shuffleButton,
+			queue: this.queueButton,
+			lyrics: this.lyricsButton,
+			station: this.stationButton,
+			random: this.randomButton,
+			playlist: this.playlistButton,
+			share: this.trackShareButton,
+			navidrome: this.navidromeButton,
+			download: this.downloadButton,
+			newWindow: this.newWindowButton,
+			rating: this.extrasRatingControl,
+			favorite: this.favoriteButton,
+			volume: this.volumeControlEl,
+		};
+		for (const id of normalizeExtrasOrder(this.plugin.settings.extrasOrder)) {
+			const el = buttons[id];
+			// Repeat and shuffle sit in the transport row while that option is
+			// on; appending them here would drag them back out.
+			if (el && el.parentElement === this.extrasRow) {
+				this.extrasRow.appendChild(el);
+			}
+		}
 	}
 
 	/** Move repeat/shuffle between the extras row and the transport side zones. */
@@ -650,7 +696,6 @@ export class StereoView extends ItemView {
 			!this.transportLeft ||
 			!this.transportRight ||
 			!this.extrasRow ||
-			!this.queueButton ||
 			!this.repeatButton ||
 			!this.shuffleButton
 		) return;
@@ -659,9 +704,9 @@ export class StereoView extends ItemView {
 			this.transportRight.appendChild(this.shuffleButton);
 			return;
 		}
-		// Return to the agreed extras order: repeat, shuffle, queue, …
-		this.extrasRow.insertBefore(this.repeatButton, this.queueButton);
-		this.extrasRow.insertBefore(this.shuffleButton, this.queueButton);
+		// applyExtrasOrder() moves both back to their configured slots.
+		this.extrasRow.appendChild(this.repeatButton);
+		this.extrasRow.appendChild(this.shuffleButton);
 	}
 
 	/** Run a library search from the command palette. */
@@ -1213,6 +1258,8 @@ export class StereoView extends ItemView {
 			},
 			{ passive: false }
 		);
+
+		this.applyExtrasOrder();
 	}
 
 	private destroyVolumeControl(): void {

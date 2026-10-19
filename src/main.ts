@@ -380,6 +380,14 @@ export default class StereoPlugin extends Plugin {
 		}
 	}
 
+	/** Repaint the extras rows after their order changed in settings. */
+	applyExtrasOrderSetting(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) leaf.view.applyExtrasOrder();
+		}
+		this.statusBar?.applyExtrasOrder();
+	}
+
 	/** Open the share dialog for one library item or a queue snapshot. */
 	openShare(target: ShareTarget): void {
 		new ShareCreateModal(this.app, this, target).open();

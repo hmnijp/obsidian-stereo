@@ -4,6 +4,7 @@ import {
 	Setting,
 	setIcon,
 	type SettingDefinitionItem,
+	type SettingGroupItem,
 } from "obsidian";
 import type StereoPlugin from "./main";
 import { ConfirmModal, ServerEditModal } from "./modals";
@@ -173,8 +174,14 @@ export interface StereoSettings {
 	showDownloadButton: boolean;
 	/** Show the button that opens the player in a separate desktop window. */
 	showNewWindowButton: boolean;
+	/** Show the queue panel button in the extras row. */
+	showQueueButton: boolean;
+	/** Show the lyrics panel button in the extras row. */
+	showLyricsButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
+	/** Ids of the extras buttons, in the order the player renders them. */
+	extrasOrder: string[];
 	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
 	restoreOpenViews: boolean;
 	/** Show the play/pause control in Obsidian's status bar. */
@@ -235,6 +242,145 @@ export interface StereoSettings {
 	searchSongCount: number;
 }
 
+/**
+ * Keys that show or hide one extras button. Narrower than `keyof
+ * StereoSettings` on purpose: a toggle may only point at a boolean.
+ */
+type ExtraButtonKey =
+	| "showRepeatButton"
+	| "showShuffleButton"
+	| "showQueueButton"
+	| "showLyricsButton"
+	| "showStationButton"
+	| "showRandomButton"
+	| "showPlaylistButton"
+	| "showShareButton"
+	| "showNavidromeButton"
+	| "showDownloadButton"
+	| "showNewWindowButton"
+	| "showRatingButton"
+	| "showFavoriteButton"
+	| "volumeControl";
+
+/**
+ * The extras row, listed in its default order. `extrasOrder` decides what the
+ * player actually renders; both surfaces lay their buttons out from it and skip
+ * the ids they do not have.
+ */
+export const EXTRA_BUTTONS: ReadonlyArray<{
+	id: string;
+	name: string;
+	desc: string;
+	key: ExtraButtonKey;
+}> = [
+	{
+		id: "repeat",
+		name: "Repeat button",
+		desc: "Show the repeat button in the extras row or the transport row.",
+		key: "showRepeatButton",
+	},
+	{
+		id: "shuffle",
+		name: "Shuffle button",
+		desc: "Show the shuffle button in the extras row or the transport row.",
+		key: "showShuffleButton",
+	},
+	{
+		id: "queue",
+		name: "Queue button",
+		desc: "Show the button that opens the queue panel next to the album art.",
+		key: "showQueueButton",
+	},
+	{
+		id: "lyrics",
+		name: "Lyrics button",
+		desc: "Show the button that opens the lyrics panel next to the album art.",
+		key: "showLyricsButton",
+	},
+	{
+		id: "station",
+		name: "Station button",
+		desc: "Show the button that starts a station from the current track.",
+		key: "showStationButton",
+	},
+	{
+		id: "random",
+		name: "Random song button",
+		desc: "Show the dice toggle. It keeps playing random songs until you turn it off.",
+		key: "showRandomButton",
+	},
+	{
+		id: "playlist",
+		name: "Add to playlist button",
+		desc: "Show the add-to-playlist button in the extras row for the current track.",
+		key: "showPlaylistButton",
+	},
+	{
+		id: "share",
+		name: "Share button",
+		desc: "Show the share button for the current track. Share links must also be enabled.",
+		key: "showShareButton",
+	},
+	{
+		id: "navidrome",
+		name: "Navidrome button",
+		desc: "Show the button that opens the current album in the Navidrome web UI.",
+		key: "showNavidromeButton",
+	},
+	{
+		id: "download",
+		name: "Download button",
+		desc: "Show the button that downloads the current track and copies the file to the clipboard. Requires server downloads.",
+		key: "showDownloadButton",
+	},
+	{
+		id: "newWindow",
+		name: "Open in new window button",
+		desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
+		key: "showNewWindowButton",
+	},
+	{
+		id: "rating",
+		name: "Rating button",
+		desc: "Show the star rating button in the extras row, next to the favorite heart.",
+		key: "showRatingButton",
+	},
+	{
+		id: "favorite",
+		name: "Favorite button",
+		desc: "Show the heart button in the extras row for the current track.",
+		key: "showFavoriteButton",
+	},
+	{
+		id: "volume",
+		name: "Volume control",
+		desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
+		key: "volumeControl",
+	},
+];
+
+/**
+ * Make a stored button order usable: unknown ids (dropped buttons, hand-edited
+ * data) disappear, duplicates keep their first position, and buttons missing
+ * from the array — the ones added by a newer version — are appended in their
+ * default order. Always returns a fresh array.
+ */
+export function normalizeExtrasOrder(stored: unknown): string[] {
+	const known = EXTRA_BUTTONS.map((button) => button.id);
+	const order: string[] = [];
+	if (Array.isArray(stored)) {
+		for (const id of stored) {
+			if (typeof id === "string" && known.includes(id) && !order.includes(id)) {
+				order.push(id);
+			}
+		}
+	}
+	for (const id of known) {
+		if (!order.includes(id)) order.push(id);
+	}
+	return order;
+}
+
 export const DEFAULT_SETTINGS: StereoSettings = {
 	servers: [],
 	activeServerId: "",
@@ -256,7 +402,12 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showNavidromeButton: true,
 	showDownloadButton: true,
 	showNewWindowButton: true,
+	showQueueButton: true,
+	showLyricsButton: true,
 	repeatShuffleInTransport: false,
+	// A fresh copy per settings object; normalizeExtrasOrder always returns a
+	// new array, so this one is never mutated.
+	extrasOrder: EXTRA_BUTTONS.map((button) => button.id),
 	restoreOpenViews: true,
 	showStatusBarPlayer: true,
 	showStatusBarTransport: false,
@@ -387,6 +538,8 @@ const STATUS_BAR_KEYS = new Set<string>([
 	"showStatusBarServers",
 	"statusBarScale",
 	"statusBarExtraRows",
+	"showQueueButton",
+	"showLyricsButton",
 ]);
 
 /** Native-control keys whose change must repaint open Now Playing views. */
@@ -406,6 +559,8 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showNavidromeButton",
 	"showDownloadButton",
 	"showNewWindowButton",
+	"showQueueButton",
+	"showLyricsButton",
 	"repeatShuffleInTransport",
 	"showRating",
 	"showArtOverlays",
@@ -549,69 +704,19 @@ export class StereoSettingTab extends PluginSettingTab {
 				],
 			},
 			{
-				type: "group",
+				// One row per extras button, in display order: the toggle turns a
+				// button on or off, the handle added by the framework moves it.
+				// Rows are never hidden by their own toggle — that would make the
+				// drag indices drift away from `extrasOrder`.
+				type: "list",
 				heading: "Player buttons",
+				items: this.extrasItems(),
+				onReorder: (from, to) => this.moveExtraButton(from, to),
+			},
+			{
+				type: "group",
+				heading: "Transport",
 				items: [
-					{
-						name: "Random song button",
-						desc: "Show the dice toggle. It keeps playing random songs until you turn it off.",
-						control: { type: "toggle", key: "showRandomButton" },
-					},
-					{
-						name: "Repeat button",
-						desc: "Show the repeat button in the extras row or the transport row.",
-						control: { type: "toggle", key: "showRepeatButton" },
-					},
-					{
-						name: "Shuffle button",
-						desc: "Show the shuffle button in the extras row or the transport row.",
-						control: { type: "toggle", key: "showShuffleButton" },
-					},
-					{
-						name: "Favorite button",
-						desc: "Show the heart button in the extras row for the current track.",
-						control: { type: "toggle", key: "showFavoriteButton" },
-					},
-					{
-						name: "Rating button",
-						desc: "Show the star rating button in the extras row, next to the favorite heart.",
-						control: { type: "toggle", key: "showRatingButton" },
-					},
-					{
-						name: "Add to playlist button",
-						desc: "Show the add-to-playlist button in the extras row for the current track.",
-						control: { type: "toggle", key: "showPlaylistButton" },
-					},
-					{
-						name: "Station button",
-						desc: "Show the button that starts a station from the current track.",
-						control: { type: "toggle", key: "showStationButton" },
-					},
-					{
-						name: "Share button",
-						desc: "Show the share button for the current track. Share links must also be enabled.",
-						control: { type: "toggle", key: "showShareButton" },
-					},
-					{
-						name: "Navidrome button",
-						desc: "Show the button that opens the current album in the Navidrome web UI.",
-						control: { type: "toggle", key: "showNavidromeButton" },
-					},
-					{
-						name: "Download button",
-						desc: "Show the button that downloads the current track and copies the file to the clipboard. Requires server downloads.",
-						control: { type: "toggle", key: "showDownloadButton" },
-					},
-					{
-						name: "Open in new window button",
-						desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
-						control: { type: "toggle", key: "showNewWindowButton" },
-					},
-					{
-						name: "Volume control",
-						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
-						control: { type: "toggle", key: "volumeControl" },
-					},
 					{
 						name: "Repeat and shuffle in transport row",
 						desc: "Place repeat to the left of Previous and shuffle to the right of Next, using the transport button size. When off, both stay in the extras row.",
@@ -849,6 +954,38 @@ export class StereoSettingTab extends PluginSettingTab {
 				],
 			},
 		];
+	}
+
+	/** The extras buttons as setting rows, in the order the player shows them. */
+	private extrasItems(): SettingGroupItem[] {
+		const items: SettingGroupItem[] = [];
+		for (const id of normalizeExtrasOrder(this.plugin.settings.extrasOrder)) {
+			const button = EXTRA_BUTTONS.find((candidate) => candidate.id === id);
+			if (!button) continue;
+			items.push({
+				name: button.name,
+				desc: button.desc,
+				control: { type: "toggle", key: button.key },
+			});
+		}
+		return items;
+	}
+
+	/**
+	 * Persist a reorder of the extras buttons and repaint the players. The
+	 * framework has already moved the row, so the tab is not re-rendered: doing
+	 * that here would throw away the drag state and the focused handle.
+	 */
+	private moveExtraButton(from: number, to: number): void {
+		const order = normalizeExtrasOrder(this.plugin.settings.extrasOrder);
+		const target = Math.min(Math.max(to, 0), order.length - 1);
+		if (from === target || order[from] === undefined) return;
+		const [moved] = order.splice(from, 1);
+		if (moved === undefined) return;
+		order.splice(target, 0, moved);
+		this.plugin.settings.extrasOrder = order;
+		this.plugin.applyExtrasOrderSetting();
+		void this.plugin.saveSettings();
 	}
 
 	getControlValue(key: string): unknown {

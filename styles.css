@@ -766,6 +766,21 @@ body {
 	min-width: 0; /* let the slider shrink instead of overflowing the row */
 }
 
+/* The wheel target is the zone around the bar, sized to the thumb, so
+   scrolling works a little above and below the thin track. */
+.stereo-seek-zone {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: center;
+	min-height: var(--slider-thumb-height, 18px);
+}
+
+.stereo-seek-zone .stereo-seek {
+	flex: 1;
+	min-width: 0;
+}
+
 /* Status popup seek: extra breathing room above/below and a smaller handle. */
 .stereo-status-seek-row {
 	margin-block: var(--size-4-1);

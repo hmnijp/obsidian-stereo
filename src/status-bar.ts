@@ -446,14 +446,14 @@ export class StatusBarPlayer {
 			cls: "stereo-time",
 			text: "0:00",
 		});
-		this.seekSlider = seekRow.createEl("input", {
+		const seekZone = seekRow.createDiv({ cls: "stereo-seek-zone" });
+		this.seekSlider = seekZone.createEl("input", {
 			cls: "stereo-seek",
 			type: "range",
 			attr: {
 				min: "0",
 				max: "0",
 				step: "1",
-				"aria-label": "Seek",
 			},
 		});
 		this.remainingEl = seekRow.createDiv({
@@ -480,14 +480,14 @@ export class StatusBarPlayer {
 		this.remainingEl.addEventListener("click", () => {
 			this.seekBy(this.plugin.settings.seekStep);
 		});
-		this.seekSlider.addEventListener(
+		seekZone.addEventListener(
 			"wheel",
 			(event) => {
 				event.preventDefault();
 				this.seekBy(
 					event.deltaY < 0
-						? this.plugin.settings.seekStep
-						: -this.plugin.settings.seekStep
+						? -this.plugin.settings.seekStep
+						: this.plugin.settings.seekStep
 				);
 			},
 			{ passive: false }

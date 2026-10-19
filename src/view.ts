@@ -1084,10 +1084,13 @@ export class StereoView extends ItemView {
 		// Seek row: elapsed | slider | −remaining
 		const seekRow = page.createDiv({ cls: "stereo-seek-row" });
 		this.elapsedEl = seekRow.createDiv({ cls: "stereo-time", text: "0:00" });
-		this.seekSlider = seekRow.createEl("input", {
+		// The slider sits in a taller zone so the wheel works anywhere within
+		// the thumb's height, not just on the thin track.
+		const seekZone = seekRow.createDiv({ cls: "stereo-seek-zone" });
+		this.seekSlider = seekZone.createEl("input", {
 			cls: "stereo-seek",
 			type: "range",
-			attr: { min: "0", max: "0", step: "1", "aria-label": "Seek" },
+			attr: { min: "0", max: "0", step: "1" },
 		});
 		this.remainingEl = seekRow.createDiv({ cls: "stereo-time", text: "0:00" });
 
@@ -1110,14 +1113,14 @@ export class StereoView extends ItemView {
 			this.seekBy(this.plugin.settings.seekStep);
 		});
 		this.registerDomEvent(
-			this.seekSlider,
+			seekZone,
 			"wheel",
 			(evt) => {
 				evt.preventDefault();
 				this.seekBy(
 					evt.deltaY < 0
-						? this.plugin.settings.seekStep
-						: -this.plugin.settings.seekStep
+						? -this.plugin.settings.seekStep
+						: this.plugin.settings.seekStep
 				);
 			},
 			{ passive: false }
@@ -1818,10 +1821,11 @@ export class StereoView extends ItemView {
 			cls: "stereo-time stereo-mini-time",
 			text: "0:00",
 		});
-		this.miniSeekSlider = bottom.createEl("input", {
+		const miniSeekZone = bottom.createDiv({ cls: "stereo-seek-zone" });
+		this.miniSeekSlider = miniSeekZone.createEl("input", {
 			cls: "stereo-seek stereo-mini-seek",
 			type: "range",
-			attr: { min: "0", max: "0", step: "1", "aria-label": "Seek" },
+			attr: { min: "0", max: "0", step: "1" },
 		});
 		this.miniRemainingEl = bottom.createDiv({
 			cls: "stereo-time stereo-mini-time stereo-mini-remaining",
@@ -1844,14 +1848,14 @@ export class StereoView extends ItemView {
 			this.seekBy(this.plugin.settings.seekStep);
 		});
 		this.registerDomEvent(
-			this.miniSeekSlider,
+			miniSeekZone,
 			"wheel",
 			(evt) => {
 				evt.preventDefault();
 				this.seekBy(
 					evt.deltaY < 0
-						? this.plugin.settings.seekStep
-						: -this.plugin.settings.seekStep
+						? -this.plugin.settings.seekStep
+						: this.plugin.settings.seekStep
 				);
 			},
 			{ passive: false }

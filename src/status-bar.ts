@@ -392,7 +392,8 @@ export class StatusBarPlayer {
 		});
 		this.lyrics = new LyricsPanel(
 			this.plugin,
-			this.lyricsPanelEl.createDiv({ cls: "stereo-lyrics" })
+			this.lyricsPanelEl.createDiv({ cls: "stereo-lyrics" }),
+			"top"
 		);
 		this.lyrics.applyStyle();
 		this.lyricsPanelEl.toggleClass("stereo-hidden", !this.lyricsVisible);
@@ -715,10 +716,7 @@ export class StatusBarPlayer {
 		const maxVisualWidth = Math.max(1, win.innerWidth - margin * 2);
 		const baseWidth = Math.min(280, maxVisualWidth / scale);
 		popup.style.width = `${baseWidth}px`;
-		const maxVisualHeight = Math.max(
-			1,
-			Math.min(win.innerHeight * 0.9, 720)
-		);
+		const maxVisualHeight = Math.max(1, win.innerHeight - margin * 2);
 		popup.style.maxHeight = `${maxVisualHeight / scale}px`;
 		const width = popup.offsetWidth * scale;
 		const baseHeight = popup.offsetHeight;
@@ -1280,10 +1278,10 @@ export class StatusBarPlayer {
 
 	/** Match the lyrics panel to the queue's height so both fill the slot. */
 	private applyExtraPanelHeight(): void {
-		if (!this.lyricsPanelEl) return;
-		this.lyricsPanelEl.style.height = this.lyricsVisible
-			? `${this.extraPanelHeight()}px`
-			: "";
+		this.popup?.style.setProperty(
+			"--stereo-status-rows-height",
+			`${this.extraPanelHeight()}px`
+		);
 	}
 
 	/** Re-apply lyrics settings to an open mini player (settings change). */
@@ -1307,7 +1305,6 @@ export class StatusBarPlayer {
 		this.renderedQueue = state.queue;
 		this.renderedIndex = state.index;
 		list.empty();
-		this.setQueueScrollable(state.queue.length > this.extraRows());
 		if (state.queue.length === 0) {
 			list.createDiv({
 				cls: "stereo-status-queue-empty",
@@ -1358,22 +1355,6 @@ export class StatusBarPlayer {
 		});
 		this.positionPopup();
 		requestAnimationFrame(() => this.scrollQueueCurrent());
-	}
-
-	private setQueueScrollable(scrollable: boolean): void {
-		const list = this.queueList;
-		if (!list) return;
-		list.toggleClass("stereo-status-queue-scroll", scrollable);
-		if (scrollable) {
-			const height = `${this.extraPanelHeight()}px`;
-			list.style.height = height;
-			list.style.maxHeight = height;
-			list.style.overflowY = "auto";
-		} else {
-			list.style.height = "";
-			list.style.maxHeight = "";
-			list.style.overflowY = "";
-		}
 	}
 
 	private scrollQueueCurrent(): void {

@@ -2386,7 +2386,7 @@ body {
 	flex-direction: column;
 	gap: var(--size-4-1);
 	width: min(280px, calc(100vw - 16px));
-	max-height: min(90vh, 720px);
+	max-height: calc(100vh - 16px);
 	/* The queue list owns the only scrollbar; the popup itself never scrolls. */
 	overflow: hidden;
 	padding: var(--size-4-3);
@@ -2405,6 +2405,7 @@ body {
 	flex-direction: column;
 	flex: 0 1 auto;
 	min-height: 0;
+	overflow: hidden;
 	padding-bottom: var(--size-2-2);
 	border-bottom: 1px solid var(--background-modifier-border);
 }
@@ -2412,10 +2413,10 @@ body {
 .stereo-status-queue-list {
 	display: flex;
 	flex-direction: column;
-	flex: 0 1 auto;
+	flex: 1 1 auto;
 	min-height: 0;
 	gap: 2px;
-	max-height: 222px;
+	height: var(--stereo-status-rows-height, 222px);
 	overflow-y: auto;
 }
 
@@ -2424,7 +2425,8 @@ body {
 .stereo-status-lyrics {
 	display: flex;
 	flex-direction: column;
-	flex: 0 0 auto;
+	flex: 0 1 auto;
+	height: var(--stereo-status-rows-height, 222px);
 	min-height: 0;
 	overflow: hidden;
 	padding-bottom: var(--size-2-2);
@@ -2435,12 +2437,6 @@ body {
 	flex: 1;
 	min-height: 0;
 	padding: 0 var(--size-4-2);
-}
-
-.stereo-status-queue-scroll {
-	height: 222px;
-	max-height: 222px;
-	overflow-y: auto;
 }
 
 .stereo-status-queue-row {

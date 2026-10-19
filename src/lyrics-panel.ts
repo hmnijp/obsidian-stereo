@@ -23,7 +23,13 @@ export class LyricsPanel {
 	private token = 0;
 	private loadedFor: string | null = null;
 
-	constructor(plugin: StereoPlugin, scrollEl: HTMLElement) {
+	constructor(
+		plugin: StereoPlugin,
+		scrollEl: HTMLElement,
+		/** Where the active line sits: centered, or pinned under one line of
+		 * context (the mini player has little room, so it pins to the top). */
+		private readonly activeAnchor: "center" | "top" = "center"
+	) {
 		this.plugin = plugin;
 		this.scrollEl = scrollEl;
 		// Custom views are not editors, so keep Ctrl/Cmd+C working on a plain
@@ -174,15 +180,27 @@ export class LyricsPanel {
 			!!selection.anchorNode &&
 			this.scrollEl.contains(selection.anchorNode);
 		if (!selecting) {
-			const target =
-				current.offsetTop -
-				this.scrollEl.clientHeight / 2 +
-				current.clientHeight / 2;
+			const target = this.activeTarget(index, current);
 			this.scrollEl.scrollTo({
 				top: Math.max(0, target),
 				behavior: jump ? "auto" : "smooth",
 			});
 		}
+	}
+
+	/** Scroll offset that keeps the active line readable. */
+	private activeTarget(index: number, current: HTMLElement): number {
+		if (this.activeAnchor === "top") {
+			// Pin the active line just under one line of context, the rest
+			// below it. Falls back to the active line for the first verse.
+			const previous = this.lineEls[index - 1];
+			return (previous ?? current).offsetTop;
+		}
+		return (
+			current.offsetTop -
+			this.scrollEl.clientHeight / 2 +
+			current.clientHeight / 2
+		);
 	}
 
 	private status(text: string): void {

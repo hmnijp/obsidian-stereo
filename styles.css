@@ -2708,14 +2708,6 @@ body {
 	border-top: 1px solid var(--background-modifier-border);
 }
 
-.stereo-status-servers-heading {
-	padding: 0 2px var(--size-2-1);
-	color: var(--text-muted);
-	font-size: calc(var(--font-ui-smaller) / 2);
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-}
-
 .stereo-status-server-list {
 	display: flex;
 	flex-direction: column;

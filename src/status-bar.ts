@@ -640,10 +640,6 @@ export class StatusBarPlayer {
 		});
 
 		this.serversEl = popup.createDiv({ cls: "stereo-status-servers" });
-		this.serversEl.createDiv({
-			cls: "stereo-status-servers-heading",
-			text: "Servers",
-		});
 		this.serverList = this.serversEl.createDiv({
 			cls: "stereo-status-server-list",
 		});

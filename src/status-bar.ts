@@ -630,7 +630,7 @@ export class StatusBarPlayer {
 		);
 		this.playlistButton = this.iconButton(
 			extrasMain,
-			"list-music",
+			"list-plus",
 			"Add to playlist",
 			() => this.addToPlaylist()
 		);
@@ -1131,7 +1131,7 @@ export class StatusBarPlayer {
 		menu.addItem((item) =>
 			item
 				.setTitle("Add to playlist…")
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!canAddSong)
 				.onClick(() => {
 					if (canAddSong) void this.plugin.addToPlaylist([track]);
@@ -1144,7 +1144,7 @@ export class StatusBarPlayer {
 						? `Add ${collection.kind} to playlist…`
 						: "Add album/playlist to playlist…"
 				)
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!collection)
 				.onClick(() => {
 					if (collection) {
@@ -1179,7 +1179,7 @@ export class StatusBarPlayer {
 		menu.addItem((item) => {
 			item
 				.setTitle("Move to next")
-				.setIcon("list-plus")
+				.setIcon("list-end")
 				.setDisabled(!this.plugin.player.canMoveToNext(index))
 				.onClick(() => {
 					if (this.plugin.player.getState().queue === queue) {

@@ -466,7 +466,7 @@ export class StereoView extends ItemView {
 		menu.addItem((item) =>
 			item
 				.setTitle("Add to playlist…")
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!canAddSong)
 				.onClick(() => {
 					if (canAddSong) void this.library.addToPlaylist([track]);
@@ -479,7 +479,7 @@ export class StereoView extends ItemView {
 						? `Add ${collection.kind} to playlist…`
 						: "Add album/playlist to playlist…"
 				)
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!collection)
 				.onClick(() => {
 					if (collection) {
@@ -1101,7 +1101,7 @@ export class StereoView extends ItemView {
 		);
 		this.playlistButton = this.iconButton(
 			extrasRow,
-			"list-music",
+			"list-plus",
 			"Add to playlist",
 			() => {
 				const track = this.plugin.player.getState().track;
@@ -1391,7 +1391,7 @@ export class StereoView extends ItemView {
 		);
 		this.queuePlaylistButton = this.iconButton(
 			actions,
-			"list-music",
+			"list-plus",
 			"Add queue to playlist",
 			() => {
 				void this.library.addToPlaylist(
@@ -1598,7 +1598,7 @@ export class StereoView extends ItemView {
 		const song = queue[index];
 		const menu = new Menu();
 		menu.addItem((item) => {
-			item.setTitle("Move to next").setIcon("list-plus")
+			item.setTitle("Move to next").setIcon("list-end")
 				.setDisabled(!this.plugin.player.canMoveToNext(index)).onClick(() => {
 					if (this.plugin.player.getState().queue === queue) this.plugin.player.moveToNext(index);
 				});

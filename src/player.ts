@@ -96,7 +96,7 @@ const POSITION_PERSIST_INTERVAL_SECONDS = 5;
 /** A play scrobbles at half the track or after this many seconds, whichever first. */
 const SCROBBLE_AFTER_SECONDS = 240;
 /** Keep the generated random queue bounded while still allowing long backtracking. */
-const RANDOM_QUEUE_LIMIT = 100;
+const RANDOM_QUEUE_LIMIT = 1000;
 
 /**
  * Framework-free playback store. Owns the single `<audio>` element for the

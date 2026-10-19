@@ -308,7 +308,8 @@ body {
 	flex: 1;
 	align-items: center;
 	justify-content: center;
-	padding: var(--size-4-2);
+	/* No horizontal padding: the square art gets the full content width. */
+	padding: var(--size-4-2) 0;
 }
 
 .stereo-art {
@@ -399,14 +400,16 @@ body {
 	display: flex;
 	flex: 1;
 	min-height: 120px;
-	padding: var(--size-4-2);
+	/* No horizontal padding: the queue (and its scrollbar) reaches the pane
+	   content edge instead of sitting in an extra 8px + 12px inset. */
+	padding: var(--size-4-2) 0;
 }
 
 .stereo-now-queue {
 	flex: 1;
 	min-width: 0;
 	overflow-y: auto;
-	padding: 0 var(--size-4-3);
+	padding: 0;
 }
 
 .stereo-now-queue-row {
@@ -489,7 +492,7 @@ body {
    rating/favorite overlays can sit in its corners in all presentation modes. */
 .stereo-art-stage {
 	position: relative;
-	width: min(92%, var(--stereo-art-size, 340px));
+	width: min(100%, var(--stereo-art-size, 340px));
 	aspect-ratio: 1;
 }
 

@@ -1101,6 +1101,27 @@ export class StereoView extends ItemView {
 			this.plugin.player.seek(Number(this.seekSlider.value));
 			this.seeking = false;
 		});
+		// Click the elapsed label to rewind, the remaining label to skip ahead;
+		// roll the wheel over the bar to nudge by the same step.
+		this.registerDomEvent(this.elapsedEl, "click", () => {
+			this.seekBy(-this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(this.remainingEl, "click", () => {
+			this.seekBy(this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(
+			this.seekSlider,
+			"wheel",
+			(evt) => {
+				evt.preventDefault();
+				this.seekBy(
+					evt.deltaY < 0
+						? this.plugin.settings.seekStep
+						: -this.plugin.settings.seekStep
+				);
+			},
+			{ passive: false }
+		);
 
 		// Transport row: side zones optionally hold repeat (left) and shuffle
 		// (right); the central prev/play/next group stays centred either way.
@@ -1816,6 +1837,25 @@ export class StereoView extends ItemView {
 			this.plugin.player.seek(Number(this.miniSeekSlider.value));
 			this.miniSeeking = false;
 		});
+		this.registerDomEvent(this.miniElapsedEl, "click", () => {
+			this.seekBy(-this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(this.miniRemainingEl, "click", () => {
+			this.seekBy(this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(
+			this.miniSeekSlider,
+			"wheel",
+			(evt) => {
+				evt.preventDefault();
+				this.seekBy(
+					evt.deltaY < 0
+						? this.plugin.settings.seekStep
+						: -this.plugin.settings.seekStep
+				);
+			},
+			{ passive: false }
+		);
 		this.miniPreviousButton = this.iconButton(bottom, "skip-back", "Previous", () => {
 			void this.plugin.player.previous();
 		});
@@ -2019,6 +2059,16 @@ export class StereoView extends ItemView {
 		this.miniRemainingEl.setText(
 			duration > 0 ? `-${formatTime(duration - position)}` : "0:00"
 		);
+	}
+
+	/**
+	 * Nudge playback by ±step seconds. Shared by the clickable time labels
+	 * (left rewinds, right skips ahead) and the mouse wheel over the seek bar.
+	 */
+	private seekBy(delta: number): void {
+		const state = this.plugin.player.getState();
+		if (!state.track) return;
+		this.plugin.player.seek(state.position + delta);
 	}
 
 	private render(state: Readonly<PlayerState>): void {

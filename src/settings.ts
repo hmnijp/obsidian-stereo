@@ -134,6 +134,8 @@ export interface StereoSettings {
 	scrobbleEnabled: boolean;
 	/** Show the volume button and popover; when off, output stays at 100%. */
 	volumeControl: boolean;
+	/** Seconds the time labels and the seek-bar wheel jump by. */
+	seekStep: number;
 	/** Show the dice button in the extras row. */
 	showRandomButton: boolean;
 	/** Show the repeat button in the extras row or transport row. */
@@ -211,6 +213,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	preferWanForBrowser: true,
 	scrobbleEnabled: true,
 	volumeControl: true,
+	seekStep: 5,
 	showRandomButton: true,
 	showRepeatButton: true,
 	showShuffleButton: true,
@@ -467,6 +470,20 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Volume control",
 						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
 						control: { type: "toggle", key: "volumeControl" },
+					},
+					{
+						name: "Seek step",
+						desc: "Seconds the elapsed and remaining time labels skip when clicked, and how far one mouse-wheel notch moves the seek bar.",
+						render: (setting) =>
+							this.stepper(
+								setting,
+								{ min: 1, max: 60, step: 1 },
+								() => this.plugin.settings.seekStep,
+								async (value) => {
+									this.plugin.settings.seekStep = value;
+									await this.plugin.saveSettings();
+								}
+							),
 					},
 					{
 						name: "Station batch size",

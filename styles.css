@@ -781,6 +781,10 @@ body {
 	white-space: nowrap;
 	min-width: 2.8em;
 	text-align: center;
+	/* Clickable: left label rewinds, right label skips ahead. */
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
 }
 
 /* Transport — flat glyphs, sized like a real player's controls. */

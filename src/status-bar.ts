@@ -472,6 +472,26 @@ export class StatusBarPlayer {
 			this.plugin.player.seek(Number(this.seekSlider.value));
 			this.seeking = false;
 		});
+		// Click the timers to jump by the configured step; roll the wheel over
+		// the bar to nudge in the same increments.
+		this.elapsedEl.addEventListener("click", () => {
+			this.seekBy(-this.plugin.settings.seekStep);
+		});
+		this.remainingEl.addEventListener("click", () => {
+			this.seekBy(this.plugin.settings.seekStep);
+		});
+		this.seekSlider.addEventListener(
+			"wheel",
+			(event) => {
+				event.preventDefault();
+				this.seekBy(
+					event.deltaY < 0
+						? this.plugin.settings.seekStep
+						: -this.plugin.settings.seekStep
+				);
+			},
+			{ passive: false }
+		);
 
 		const transport = popup.createDiv({
 			cls: "stereo-status-popup-row stereo-status-popup-transport",
@@ -639,6 +659,13 @@ export class StatusBarPlayer {
 		this.remainingEl?.setText(
 			duration > 0 ? `-${formatTime(duration - position)}` : "0:00"
 		);
+	}
+
+	/** Nudge playback by ±step seconds (time-label clicks, seek-bar wheel). */
+	private seekBy(delta: number): void {
+		const state = this.plugin.player.getState();
+		if (!state.track) return;
+		this.plugin.player.seek(state.position + delta);
 	}
 
 	private statusScale(): number {

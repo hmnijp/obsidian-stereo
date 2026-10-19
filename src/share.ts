@@ -5,7 +5,6 @@ import {
 	Modal,
 	Notice,
 	Setting,
-	setIcon,
 	type WorkspaceLeaf,
 } from "obsidian";
 import type StereoPlugin from "./main";
@@ -40,14 +39,6 @@ export interface ShareSourceClient {
 	getPlaylist(id: string): Promise<{ playlist: Playlist; songs: Song[] }>;
 	getPlaylists(): Promise<Playlist[]>;
 }
-
-const SHARE_KIND_ICONS: Record<ShareKind, string> = {
-	song: "music",
-	album: "disc",
-	playlist: "list-music",
-	artist: "user",
-	queue: "list-music",
-};
 
 function trackCountLabel(count: number): string {
 	return `${count} track${count === 1 ? "" : "s"}`;
@@ -374,6 +365,7 @@ export class ShareCreateModal extends Modal {
 	private allowDownloads: boolean;
 	private errorEl!: HTMLElement;
 	private createButton: ButtonComponent | null = null;
+	private actionsEl: HTMLElement | null = null;
 	private closed = false;
 
 	constructor(app: App, plugin: StereoPlugin, target: ShareTarget) {
@@ -389,30 +381,22 @@ export class ShareCreateModal extends Modal {
 
 	onOpen(): void {
 		this.closed = false;
+		this.modalEl.addClass("mod-narrow");
 		this.setTitle(
 			this.target.kind === "queue"
 				? "Share queue"
 				: `Share ${this.target.title}`
 		);
-		this.contentEl.addClass("stereo-share-modal");
 
-		const summary = this.contentEl.createDiv({ cls: "stereo-share-target" });
-		const icon = summary.createSpan({ cls: "stereo-share-target-icon" });
-		setIcon(icon, SHARE_KIND_ICONS[this.target.kind]);
-		const text = summary.createDiv({ cls: "stereo-share-target-text" });
-		text.createDiv({
-			cls: "stereo-share-target-title",
-			text: this.target.title,
-		});
 		if (this.target.subtitle) {
-			text.createDiv({
-				cls: "stereo-share-target-sub",
+			this.contentEl.createEl("p", {
+				cls: "u-muted",
 				text: this.target.subtitle,
 			});
 		}
 
 		this.contentEl.createEl("p", {
-			cls: "stereo-share-hint",
+			cls: "u-muted",
 			text: this.target.snapshot
 				? "This is a snapshot of the current queue. Later queue changes will not affect the link."
 				: "Anyone with this link can listen until it expires. Links use the original files.",
@@ -470,7 +454,7 @@ export class ShareCreateModal extends Modal {
 
 		this.errorEl = this.contentEl.createDiv({ cls: "stereo-share-error" });
 
-		const actions = this.contentEl.createDiv({ cls: "stereo-share-actions" });
+		const actions = this.buildActions();
 		new ButtonComponent(actions)
 			.setButtonText("Cancel")
 			.onClick(() => this.close());
@@ -524,53 +508,58 @@ export class ShareCreateModal extends Modal {
 
 	private showError(message: string): void {
 		this.errorEl.setText(message);
-		this.errorEl.addClass("stereo-share-error-visible");
+	}
+
+	/** Replace the footer, which changes once the link exists. */
+	private buildActions(): HTMLElement {
+		this.actionsEl?.remove();
+		this.actionsEl = this.modalEl.createDiv({
+			cls: "modal-button-container",
+		});
+		return this.actionsEl;
 	}
 
 	private showResult(share: ShareLink, expiresAt: Date): void {
 		this.contentEl.empty();
 		this.setTitle("Share link created");
-		const result = this.contentEl.createDiv({ cls: "stereo-share-result" });
-		const heading = result.createDiv({ cls: "stereo-share-result-heading" });
-		const icon = heading.createSpan({ cls: "stereo-share-result-icon" });
-		setIcon(icon, "check");
-		heading.createSpan({ text: "Link created" });
 
-		const input = result.createEl("input", {
-			cls: "stereo-share-link-input",
-			attr: {
-				type: "text",
-				readonly: "true",
-				"aria-label": "Share link",
-			},
+		const url = shareUrlFor(this.plugin, share);
+		const details = [
+			`Expires ${formatDateTime(expiresAt)}`,
+			this.allowDownloads ? "Downloads allowed" : "Downloads off",
+		];
+		if (this.target.snapshot) details.push("Snapshot of the current queue");
+
+		const row = new Setting(this.contentEl)
+			.setName("Link")
+			.setDesc(details.join(" · "));
+		const urlEl = row.descEl.createDiv({
+			cls: "stereo-share-url",
+			text: url,
 		});
-		input.value = shareUrlFor(this.plugin, share);
-		input.addEventListener("focus", () => input.select());
+		urlEl.setAttr("title", url);
+		row.addExtraButton((button) =>
+			button
+				.setIcon("copy")
+				.setTooltip("Copy link")
+				.onClick(() => {
+					void copyText(url, "Link copied.");
+				})
+		);
+		row.addExtraButton((button) =>
+			button
+				.setIcon("external-link")
+				.setTooltip("Open link")
+				.onClick(() => {
+					window.open(url, "_blank");
+				})
+		);
 
-		const actions = result.createDiv({ cls: "stereo-share-actions" });
-		new ButtonComponent(actions)
-			.setButtonText("Copy link")
-			.setCta()
-			.onClick(() => {
-				void copyText(input.value, "Link copied.");
-			});
-		new ButtonComponent(actions)
-			.setButtonText("Open")
-			.onClick(() => {
-				window.open(input.value, "_blank");
-			});
+		const actions = this.buildActions();
 		new ButtonComponent(actions)
 			.setButtonText("Done")
+			.setCta()
 			.onClick(() => this.close());
-
-		const details = result.createDiv({ cls: "stereo-share-result-details" });
-		details.createDiv({ text: `Expires ${formatDateTime(expiresAt)}` });
-		details.createDiv({
-			text: this.allowDownloads ? "Downloads allowed" : "Downloads off",
-		});
-		if (this.target.snapshot) {
-			details.createDiv({ text: "Snapshot of the current queue." });
-		}
 	}
 }
 
@@ -608,21 +597,15 @@ export class ShareEditModal extends Modal {
 	}
 
 	onOpen(): void {
+		this.modalEl.addClass("mod-narrow");
 		this.setTitle("Edit share link");
-		this.contentEl.addClass("stereo-share-modal");
 
-		const summary = this.contentEl.createDiv({ cls: "stereo-share-target" });
-		const icon = summary.createSpan({ cls: "stereo-share-target-icon" });
-		setIcon(icon, "link");
-		const text = summary.createDiv({ cls: "stereo-share-target-text" });
-		text.createDiv({
-			cls: "stereo-share-target-title",
-			text: this.share.description || "Shared item",
+		const url = shareUrlFor(this.plugin, this.share);
+		const urlEl = this.contentEl.createDiv({
+			cls: "stereo-share-url",
+			text: url,
 		});
-		text.createDiv({
-			cls: "stereo-share-target-sub",
-			text: shareUrlFor(this.plugin, this.share),
-		});
+		urlEl.setAttr("title", url);
 
 		new Setting(this.contentEl)
 			.setName("Description")
@@ -656,7 +639,9 @@ export class ShareEditModal extends Modal {
 			});
 
 		this.errorEl = this.contentEl.createDiv({ cls: "stereo-share-error" });
-		const actions = this.contentEl.createDiv({ cls: "stereo-share-actions" });
+		const actions = this.modalEl.createDiv({
+			cls: "modal-button-container",
+		});
 		new ButtonComponent(actions)
 			.setButtonText("Cancel")
 			.onClick(() => this.close());

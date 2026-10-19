@@ -1,5 +1,6 @@
 import { Menu, Notice, setIcon } from "obsidian";
 import { copyCoverToClipboard } from "./cover-clipboard";
+import { LyricsPanel } from "./lyrics-panel";
 import type StereoPlugin from "./main";
 import { albumLabel, songMeta } from "./metadata";
 import { PlaylistSharePickerModal } from "./modals";
@@ -22,12 +23,11 @@ import type { Song } from "./subsonic";
 
 type ServerHealth = "checking" | "ok" | "error";
 
-const QUEUE_VISIBLE_ROWS = 7;
 const QUEUE_ROW_HEIGHT = 30;
 const QUEUE_ROW_GAP = 2;
-const QUEUE_SCROLL_HEIGHT =
-	QUEUE_VISIBLE_ROWS * QUEUE_ROW_HEIGHT +
-	(QUEUE_VISIBLE_ROWS - 1) * QUEUE_ROW_GAP;
+const STATUS_ROWS_MIN = 3;
+const STATUS_ROWS_MAX = 20;
+const STATUS_ROWS_DEFAULT = 7;
 
 /**
  * Obsidian status-bar play/pause button plus its right-click mini player.
@@ -80,6 +80,10 @@ export class StatusBarPlayer {
 	private queueVisible = false;
 	private renderedQueue: Song[] | null = null;
 	private renderedIndex = -1;
+	private lyricsButton: HTMLButtonElement | null = null;
+	private lyricsPanelEl: HTMLElement | null = null;
+	private lyrics: LyricsPanel | null = null;
+	private lyricsVisible = false;
 	private serversEl: HTMLElement | null = null;
 	private serverList: HTMLElement | null = null;
 
@@ -92,6 +96,10 @@ export class StatusBarPlayer {
 		this.plugin = plugin;
 		this.item = item;
 		this.queueVisible = plugin.settings.statusBarQueueOpen === true;
+		// The queue and lyrics share the mini player's top slot: at most one is
+		// open at a time.
+		this.lyricsVisible =
+			!this.queueVisible && plugin.settings.statusBarLyricsOpen === true;
 		this.item.addClass("stereo-status-bar-item");
 		this.item.setAttribute("aria-haspopup", "true");
 		this.item.setAttribute("aria-expanded", "false");
@@ -207,6 +215,7 @@ export class StatusBarPlayer {
 	refresh(): void {
 		this.render(this.plugin.player.getState());
 		this.renderPopup();
+		this.applyExtraPanelHeight();
 		if (!this.popup) return;
 		this.positionPopup();
 		if (this.plugin.settings.showStatusBarServers) {
@@ -358,6 +367,9 @@ export class StatusBarPlayer {
 		this.queueList = null;
 		this.renderedQueue = null;
 		this.renderedIndex = -1;
+		this.lyricsButton = null;
+		this.lyricsPanelEl = null;
+		this.lyrics = null;
 		this.serversEl = null;
 		this.serverList = null;
 		this.serverHealth = "checking";
@@ -373,6 +385,18 @@ export class StatusBarPlayer {
 			attr: { role: "list" },
 		});
 		this.queuePanel.toggleClass("stereo-hidden", !this.queueVisible);
+
+		this.lyricsPanelEl = popup.createDiv({
+			cls: "stereo-status-lyrics stereo-hidden",
+			attr: { role: "region", "aria-label": "Lyrics" },
+		});
+		this.lyrics = new LyricsPanel(
+			this.plugin,
+			this.lyricsPanelEl.createDiv({ cls: "stereo-lyrics" })
+		);
+		this.lyrics.applyStyle();
+		this.lyricsPanelEl.toggleClass("stereo-hidden", !this.lyricsVisible);
+		this.applyExtraPanelHeight();
 
 		const header = popup.createDiv({ cls: "stereo-status-header" });
 		const cover = header.createDiv({ cls: "stereo-status-cover" });
@@ -558,6 +582,16 @@ export class StatusBarPlayer {
 			() => this.toggleQueue()
 		);
 		this.queueButton.setAttribute("aria-pressed", "false");
+		this.lyricsButton = this.iconButton(
+			extrasMain,
+			"mic-vocal",
+			"Lyrics",
+			() => this.toggleLyrics()
+		);
+		this.lyricsButton.setAttribute(
+			"aria-pressed",
+			String(this.lyricsVisible)
+		);
 		this.stationButton = this.iconButton(
 			extrasMain,
 			"disc-3",
@@ -747,6 +781,18 @@ export class StatusBarPlayer {
 		this.queueButton?.setAttribute(
 			"aria-pressed",
 			String(this.queueVisible)
+		);
+		if (this.lyricsVisible) {
+			this.lyrics?.syncFontSize(this.lyricsPanelEl?.clientWidth ?? 0);
+			this.lyrics?.sync(track, state.position);
+		}
+		this.lyricsButton?.toggleClass(
+			"stereo-button-active",
+			this.lyricsVisible
+		);
+		this.lyricsButton?.setAttribute(
+			"aria-pressed",
+			String(this.lyricsVisible)
 		);
 		this.renderHeader(track);
 		if (this.seekSlider) {
@@ -1171,23 +1217,81 @@ export class StatusBarPlayer {
 		this.positionPopup();
 	}
 
-	private toggleQueue(): void {
-		if (!this.queuePanel) return;
-		this.queueVisible = !this.queueVisible;
-		this.plugin.settings.statusBarQueueOpen = this.queueVisible;
-		void this.plugin.saveSettings();
-		this.queuePanel.toggleClass("stereo-hidden", !this.queueVisible);
-		this.queueButton?.toggleClass("stereo-button-active", this.queueVisible);
-		this.queueButton?.setAttribute(
-			"aria-pressed",
-			String(this.queueVisible)
-		);
-		if (this.queueVisible) {
+	/** Show/hide the queue panel, keeping its button and settings in sync. */
+	private setQueueOpen(open: boolean): void {
+		this.queueVisible = open;
+		this.plugin.settings.statusBarQueueOpen = open;
+		this.queuePanel?.toggleClass("stereo-hidden", !open);
+		this.queueButton?.toggleClass("stereo-button-active", open);
+		this.queueButton?.setAttribute("aria-pressed", String(open));
+		if (open) {
 			this.renderedQueue = null;
 			this.renderedIndex = -1;
 			this.renderQueue(this.plugin.player.getState());
-		} else {
-			this.positionPopup();
+		}
+	}
+
+	/** Show/hide the lyrics panel, keeping its button and settings in sync. */
+	private setLyricsOpen(open: boolean): void {
+		this.lyricsVisible = open;
+		this.plugin.settings.statusBarLyricsOpen = open;
+		this.lyricsPanelEl?.toggleClass("stereo-hidden", !open);
+		this.lyricsButton?.toggleClass("stereo-button-active", open);
+		this.lyricsButton?.setAttribute("aria-pressed", String(open));
+		this.applyExtraPanelHeight();
+		if (open) {
+			this.lyrics?.syncFontSize(this.lyricsPanelEl?.clientWidth ?? 0);
+			void this.lyrics?.load(this.plugin.player.getState().track);
+		}
+	}
+
+	private toggleQueue(): void {
+		if (!this.queuePanel) return;
+		const opening = !this.queueVisible;
+		if (opening) this.setLyricsOpen(false);
+		this.setQueueOpen(opening);
+		void this.plugin.saveSettings();
+		if (!opening) this.positionPopup();
+	}
+
+	private toggleLyrics(): void {
+		if (!this.lyrics) return;
+		const opening = !this.lyricsVisible;
+		if (opening) this.setQueueOpen(false);
+		this.setLyricsOpen(opening);
+		void this.plugin.saveSettings();
+		this.positionPopup();
+	}
+
+	/** Configured number of rows the queue/lyrics show in the mini player. */
+	private extraRows(): number {
+		const raw = Number(this.plugin.settings.statusBarExtraRows);
+		const rows = Number.isFinite(raw)
+			? Math.round(raw)
+			: STATUS_ROWS_DEFAULT;
+		return Math.min(STATUS_ROWS_MAX, Math.max(STATUS_ROWS_MIN, rows));
+	}
+
+	/** Pixel height of the queue's scroll area (and its gap-separated rows). */
+	private extraPanelHeight(): number {
+		const rows = this.extraRows();
+		return rows * QUEUE_ROW_HEIGHT + (rows - 1) * QUEUE_ROW_GAP;
+	}
+
+	/** Match the lyrics panel to the queue's height so both fill the slot. */
+	private applyExtraPanelHeight(): void {
+		if (!this.lyricsPanelEl) return;
+		this.lyricsPanelEl.style.height = this.lyricsVisible
+			? `${this.extraPanelHeight()}px`
+			: "";
+	}
+
+	/** Re-apply lyrics settings to an open mini player (settings change). */
+	applyLyricsSettings(): void {
+		this.lyrics?.applyStyle();
+		this.lyrics?.syncFontSize(this.lyricsPanelEl?.clientWidth ?? 0);
+		if (this.lyricsVisible) {
+			void this.lyrics?.load(this.plugin.player.getState().track);
 		}
 	}
 
@@ -1203,7 +1307,7 @@ export class StatusBarPlayer {
 		this.renderedQueue = state.queue;
 		this.renderedIndex = state.index;
 		list.empty();
-		this.setQueueScrollable(state.queue.length > QUEUE_VISIBLE_ROWS);
+		this.setQueueScrollable(state.queue.length > this.extraRows());
 		if (state.queue.length === 0) {
 			list.createDiv({
 				cls: "stereo-status-queue-empty",
@@ -1261,8 +1365,9 @@ export class StatusBarPlayer {
 		if (!list) return;
 		list.toggleClass("stereo-status-queue-scroll", scrollable);
 		if (scrollable) {
-			list.style.height = `${QUEUE_SCROLL_HEIGHT}px`;
-			list.style.maxHeight = `${QUEUE_SCROLL_HEIGHT}px`;
+			const height = `${this.extraPanelHeight()}px`;
+			list.style.height = height;
+			list.style.maxHeight = height;
 			list.style.overflowY = "auto";
 		} else {
 			list.style.height = "";

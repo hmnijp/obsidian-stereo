@@ -2419,6 +2419,24 @@ body {
 	overflow-y: auto;
 }
 
+/* Lyrics share the queue's top slot in the mini player; the shared
+   .stereo-lyrics element supplies the font, colours and synced highlight. */
+.stereo-status-lyrics {
+	display: flex;
+	flex-direction: column;
+	flex: 0 0 auto;
+	min-height: 0;
+	overflow: hidden;
+	padding-bottom: var(--size-2-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.stereo-status-lyrics .stereo-lyrics {
+	flex: 1;
+	min-height: 0;
+	padding: 0 var(--size-4-2);
+}
+
 .stereo-status-queue-scroll {
 	height: 222px;
 	max-height: 222px;

@@ -170,6 +170,10 @@ export interface StereoSettings {
 	statusBarScale: number;
 	/** Persisted open state of the status-bar mini-player queue. */
 	statusBarQueueOpen: boolean;
+	/** Persisted open state of the status-bar mini-player lyrics. */
+	statusBarLyricsOpen: boolean;
+	/** Rows the status-bar queue and lyrics show before scrolling. */
+	statusBarExtraRows: number;
 	/** Show 1–5 star ratings in track lists. */
 	showRating: boolean;
 	/** Show rating and favorite controls in the album-art corners. */
@@ -233,6 +237,8 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showStatusBarServers: true,
 	statusBarScale: 100,
 	statusBarQueueOpen: false,
+	statusBarLyricsOpen: false,
+	statusBarExtraRows: 7,
 	showRating: false,
 	showArtOverlays: true,
 	showRatingButton: true,
@@ -605,6 +611,21 @@ export class StereoSettingTab extends PluginSettingTab {
 								() => this.plugin.settings.statusBarScale,
 								async (value) => {
 									this.plugin.settings.statusBarScale = value;
+									await this.plugin.saveSettings();
+									this.plugin.applyStatusBarSetting();
+								}
+							),
+					},
+					{
+						name: "Queue and lyrics rows",
+						desc: "How many rows the status-bar queue and lyrics show before scrolling. The mini player grows upward by this many rows.",
+						render: (setting) =>
+							this.stepper(
+								setting,
+								{ min: 3, max: 20, step: 1 },
+								() => this.plugin.settings.statusBarExtraRows,
+								async (value) => {
+									this.plugin.settings.statusBarExtraRows = value;
 									await this.plugin.saveSettings();
 									this.plugin.applyStatusBarSetting();
 								}

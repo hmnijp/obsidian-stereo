@@ -1,4 +1,5 @@
 import type { StereoSettings } from "./settings";
+import { AvailabilityStore } from "./availability";
 import { HistoryStore, historyConnection, type HistoryEntry } from "./history";
 import { buildStationBatch, type StationSeed } from "./station";
 import type { Song, SubsonicClient } from "./subsonic";
@@ -106,6 +107,8 @@ const RANDOM_QUEUE_LIMIT = 1000;
  */
 export class PlayerStore {
 	readonly history = new HistoryStore();
+	/** Per-account record of the tracks the server still has. */
+	readonly availability: AvailabilityStore;
 	private historyRecorded = false;
 	private loadedConnection = "";
 	private client: SubsonicClient;
@@ -154,6 +157,10 @@ export class PlayerStore {
 	constructor(client: SubsonicClient, getSettings: () => StereoSettings) {
 		this.client = client;
 		this.getSettings = getSettings;
+		this.availability = new AvailabilityStore(
+			client,
+			() => historyConnection(getSettings())
+		);
 		this.history.setKeepSource(
 			() => getSettings().keepPlaybackAcrossServers === true
 		);
@@ -189,9 +196,15 @@ export class PlayerStore {
 	syncConnection(): void {
 		if (!this.history.changeConnection(historyConnection(this.getSettings()))) return;
 		this.historyRecorded = true;
+		this.availability.syncKey();
 		// With "keep across servers" on, the previous account's history and queue
 		// stay: their tracks are marked unavailable instead of being dropped.
-		if (this.getSettings().keepPlaybackAcrossServers) return;
+		if (this.getSettings().keepPlaybackAcrossServers) {
+			// The queue came from the previous server, so ask which of its
+			// tracks the new one still has.
+			this.availability.ensure(this.state.queue.map((song) => song.id));
+			return;
+		}
 		this.invalidateUndo();
 		this.emptyQueue();
 	}
@@ -1224,10 +1237,16 @@ export class PlayerStore {
 	 * already-playing track. Never touches playback itself.
 	 */
 	private onPlaying = (): void => {
-		if (!this.historyRecorded && this.state.track && this.audio.src && !this.audio.paused && !this.audio.error && this.audio.readyState >= 2) {
-			this.historyRecorded = true;
-			if (this.loadedConnection === historyConnection(this.getSettings())) {
-				this.history.record(this.state.track, this.loadedConnection);
+		const track = this.state.track;
+		if (track && this.audio.src && !this.audio.paused && !this.audio.error && this.audio.readyState >= 2) {
+			const current = historyConnection(this.getSettings());
+			// Playing it proves the server has it, so it never needs a probe.
+			if (this.loadedConnection === current) this.availability.markPresent(track.id);
+			if (!this.historyRecorded) {
+				this.historyRecorded = true;
+				if (this.loadedConnection === current) {
+					this.history.record(track, this.loadedConnection);
+				}
 			}
 		}
 		if (!this.audioContext) return;

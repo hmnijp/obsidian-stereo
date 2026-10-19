@@ -286,6 +286,40 @@ test("keeping playback across servers retains history, queue and undo", async (t
 	assert.deepEqual(store.getState().queue, []);
 });
 
+test("availability probes the inherited queue and drops verdicts with the old account", async (t) => {
+	const settings = { serverUrl: "https://one.invalid", username: "first", keepPlaybackAcrossServers: true };
+	const { store, client } = setup(t, settings);
+	const probed = [];
+	client.getSong = async (id) => { probed.push(id); return id === b.id ? b : null; };
+	await store.playTrack(a);
+	// Playing it on this account is proof enough, so it needs no probe there.
+	store.availability.ensure([a.id]);
+	await flush();
+	assert.deepEqual(probed, []);
+	assert.equal(store.availability.isPresent(a.id), true);
+	// Switching accounts keeps the queue but throws the old verdicts away:
+	// proof from one server says nothing about the next.
+	await store.addToQueue([b, c]);
+	settings.username = "second";
+	store.syncConnection();
+	await flush();
+	assert.deepEqual(probed.sort(), ["a", "b", "c"]);
+	assert.equal(store.availability.isPresent(b.id), true);
+	assert.equal(store.availability.isMissing(c.id), true);
+	assert.equal(store.availability.isMissing(a.id), true);
+	// Ids that already have a verdict are never probed twice.
+	probed.length = 0;
+	store.availability.ensure([a.id, b.id, c.id]);
+	await flush();
+	assert.deepEqual(probed, []);
+	// Turning the setting off drops the inherited queue and its verdicts.
+	settings.keepPlaybackAcrossServers = false;
+	settings.username = "third";
+	store.syncConnection();
+	assert.equal(store.availability.isMissing(c.id), false);
+	assert.deepEqual(store.getState().queue, []);
+});
+
 test("late playing events from the previous account never enter the new history", async (t) => {
 	const settings = { username: "first" };
 	const { store, audio } = setup(t, settings);
@@ -306,6 +340,7 @@ function setup(t, settings = {}) {
 		streamUrl: (id) => `https://music.invalid/${id}`,
 		getSimilarSongs: async () => [b, c, d],
 		getRandomSongs: async () => [],
+		getSong: async () => null,
 		scrobble: async () => {},
 	};
 	const store = new PlayerStore(client, () => ({ serverUrl: "https://music.invalid", username: "listener", scrobbleEnabled: false, stationBatchSize: 5, ...settings }));

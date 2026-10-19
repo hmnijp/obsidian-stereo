@@ -638,7 +638,6 @@ body {
 .stereo-track-row {
 	display: flex;
 	align-items: center;
-	justify-content: center;
 	gap: var(--size-4-2);
 	min-width: 0;
 }
@@ -678,6 +677,7 @@ body {
 
 .stereo-track-info {
 	display: flex;
+	flex: 1;
 	flex-direction: column;
 	gap: var(--size-2-1);
 	min-width: 0;
@@ -694,21 +694,8 @@ body {
 	line-height: var(--line-height-tight);
 }
 
-/* Small-cover mode: the favorite/rating heart is pinned to the right edge of
-   the track row, while the cover stays next to the text. Symmetric padding
-   keeps the cover/text group centred and clear of the heart. */
-.stereo-track-row-heart {
-	position: relative;
-	padding-inline: calc(26px + var(--size-4-1));
-}
-
-.stereo-heart-rating.stereo-track-heart-rating {
-	position: absolute;
-	right: 0;
-	top: 50%;
-	transform: translateY(-50%);
-}
-
+/* Small-cover mode: the cover stays at the left edge and the heart is pinned
+   to the right; the text block in between centres its own lines. */
 .stereo-button.stereo-track-heart {
 	position: relative;
 	width: 26px;

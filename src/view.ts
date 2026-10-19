@@ -688,7 +688,6 @@ export class StereoView extends ItemView {
 		// The inline heart lives beside the title and mirrors the mini player,
 		// so it appears whenever the big art is out of the way.
 		this.trackHeartContainer?.toggleClass("stereo-hidden", !panels);
-		this.trackRowEl.toggleClass("stereo-track-row-heart", panels);
 	}
 
 	// --- lyrics ---

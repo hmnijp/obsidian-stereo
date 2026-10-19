@@ -860,7 +860,7 @@ export class StereoSettingTab extends PluginSettingTab {
 		const info = row.createDiv({ cls: "stereo-server-row-main" });
 		const title = info.createDiv({ cls: "stereo-server-row-title" });
 		title.setText(serverLabel(server));
-		const meta = info.createDiv({ cls: "stereo-share-row-meta" });
+		const meta = info.createDiv({ cls: "stereo-server-row-meta" });
 		meta.setText(
 			[
 				server.wanUrl ? `WAN: ${server.wanUrl}` : "",
@@ -875,7 +875,7 @@ export class StereoSettingTab extends PluginSettingTab {
 				.join(" · ")
 		);
 
-		const actions = row.createDiv({ cls: "stereo-share-row-actions" });
+		const actions = row.createDiv({ cls: "stereo-server-row-actions" });
 		this.serverActionIcon(actions, "pencil", "Edit server", () => {
 			this.editServer(server);
 		});

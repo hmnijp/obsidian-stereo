@@ -2183,15 +2183,9 @@ body {
 	line-height: var(--line-height-normal);
 }
 
-.stereo-share-toolbar {
-	display: flex;
-	justify-content: flex-end;
-	margin-bottom: 8px;
-}
-
 .stereo-share-status {
 	min-height: 1.4em;
-	margin-bottom: 8px;
+	margin: var(--size-4-2) 0;
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 	line-height: var(--line-height-normal);
@@ -2201,43 +2195,12 @@ body {
 	color: var(--text-error);
 }
 
-.stereo-share-list {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	max-height: 55vh;
-	overflow-y: auto;
+.stereo-share-status button {
+	margin-top: var(--size-4-2);
 }
 
-.stereo-share-row {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: flex-start;
-	gap: 10px;
-	padding: 10px 12px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-}
-
-.stereo-share-row-main {
-	flex: 1 1 220px;
-	min-width: 0;
-}
-
-.stereo-share-row-title {
-	font-weight: var(--font-semibold);
-	overflow-wrap: anywhere;
-}
-
-.stereo-share-row-meta {
-	margin-top: 2px;
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-	line-height: var(--line-height-normal);
-}
-
-.stereo-share-row-url {
-	margin-top: 4px;
+.stereo-share-url {
+	margin-top: var(--size-4-1);
 	color: var(--text-faint);
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
@@ -2245,18 +2208,8 @@ body {
 	user-select: text;
 }
 
-.stereo-share-row-actions {
-	display: flex;
-	flex-shrink: 0;
-	gap: 2px;
-}
-
-.stereo-share-expired {
+.stereo-share-item.stereo-share-expired {
 	opacity: 0.7;
-}
-
-.stereo-share-expired .stereo-share-row-meta {
-	color: var(--text-error);
 }
 
 /* --- Servers --- */
@@ -2297,6 +2250,19 @@ body {
 	gap: 8px;
 	font-weight: var(--font-semibold);
 	overflow-wrap: anywhere;
+}
+
+.stereo-server-row-meta {
+	margin-top: 2px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: var(--line-height-normal);
+}
+
+.stereo-server-row-actions {
+	display: flex;
+	flex-shrink: 0;
+	gap: 2px;
 }
 
 .stereo-server-active-badge {

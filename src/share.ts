@@ -751,21 +751,25 @@ export class SharesView extends ItemView {
 	async onOpen(): Promise<void> {
 		this.contentEl.empty();
 		this.contentEl.addClass("stereo-shares-view");
-		this.contentEl.createEl("p", {
-			cls: "stereo-share-hint",
-			text: "Anyone with a link can listen until it expires. Links are stored on the server.",
-		});
 
-		const toolbar = this.contentEl.createDiv({ cls: "stereo-share-toolbar" });
-		new ButtonComponent(toolbar)
-			.setButtonText("Refresh")
-			.setIcon("refresh-cw")
-			.onClick(() => {
-				void this.refresh();
-			});
+		const group = this.contentEl.createDiv({ cls: "setting-group" });
+		const heading = new Setting(group)
+			.setName("Share links")
+			.setDesc(
+				"Anyone with a link can listen until it expires. Links are stored on the server."
+			)
+			.setHeading();
+		heading.addExtraButton((button) =>
+			button
+				.setIcon("refresh-cw")
+				.setTooltip("Refresh")
+				.onClick(() => {
+					void this.refresh();
+				})
+		);
 
-		this.statusEl = this.contentEl.createDiv({ cls: "stereo-share-status" });
-		this.listEl = this.contentEl.createDiv({ cls: "stereo-share-list" });
+		this.statusEl = group.createDiv({ cls: "stereo-share-status" });
+		this.listEl = group.createDiv({ cls: "stereo-share-list" });
 		await this.refresh();
 	}
 
@@ -792,9 +796,8 @@ export class SharesView extends ItemView {
 					Date.parse(right.created) - Date.parse(left.created)
 			);
 			if (shares.length === 0) {
-				this.statusEl.setText(
-					"No share links yet. Right-click a track, album, or playlist and choose Share…"
-				);
+				this.statusEl.setText("");
+				this.renderEmpty();
 				return;
 			}
 			this.statusEl.setText("");
@@ -811,21 +814,20 @@ export class SharesView extends ItemView {
 		}
 	}
 
+	private renderEmpty(): void {
+		const empty = new Setting(this.listEl)
+			.setName("No share links yet")
+			.setDesc(
+				"Right-click a track, album, or playlist and choose Share…"
+			);
+		empty.settingEl.addClass("stereo-share-empty");
+	}
+
 	private renderRow(share: ShareLink): void {
 		const url = shareUrlFor(this.plugin, share);
 		const expires = share.expires ? new Date(share.expires) : null;
 		const expired = !!expires && expires.getTime() <= Date.now();
-		const row = this.listEl.createDiv({ cls: "stereo-share-row" });
-		if (expired) row.addClass("stereo-share-expired");
-
-		const info = row.createDiv({ cls: "stereo-share-row-main" });
 		const entries = share.entry ?? [];
-		info.createDiv({
-			cls: "stereo-share-row-title",
-			text: share.description || "Shared item",
-		});
-
-		const meta = info.createDiv({ cls: "stereo-share-row-meta" });
 		const metaParts = [
 			entryCountLabel(entries),
 			`Created ${formatDateTime(share.created)}`,
@@ -837,40 +839,53 @@ export class SharesView extends ItemView {
 		if (share.username && share.username !== activeUsername(this.plugin)) {
 			metaParts.push(`by ${share.username}`);
 		}
-		meta.setText(metaParts.join(" · "));
 
-		const urlEl = info.createDiv({ cls: "stereo-share-row-url", text: url });
+		const item = new Setting(this.listEl)
+			.setName(share.description || "Shared item")
+			.setDesc(metaParts.join(" · "));
+		item.settingEl.addClass("stereo-share-item");
+		if (expired) item.settingEl.addClass("stereo-share-expired");
+
+		const urlEl = item.descEl.createDiv({
+			cls: "stereo-share-url",
+			text: url,
+		});
 		urlEl.setAttr("title", url);
 
-		const actions = row.createDiv({ cls: "stereo-share-row-actions" });
-		this.iconAction(actions, "copy", "Copy link", () => {
-			void copyText(url, "Link copied.");
-		});
-		this.iconAction(actions, "external-link", "Open link", () => {
-			window.open(url, "_blank");
-		});
-		this.iconAction(actions, "pencil", "Edit link", () => {
-			new ShareEditModal(this.app, this.plugin, share, () => {
-				void this.refresh();
-			}).open();
-		});
-		this.iconAction(actions, "trash-2", "Delete link", () => {
-			this.confirmDelete(share);
-		});
-	}
-
-	private iconAction(
-		parent: HTMLElement,
-		icon: string,
-		label: string,
-		onClick: () => void
-	): void {
-		const button = parent.createEl("button", {
-			cls: "stereo-button clickable-icon stereo-share-icon-button",
-			attr: { "aria-label": label, title: label },
-		});
-		setIcon(button, icon);
-		button.addEventListener("click", onClick);
+		item.addExtraButton((button) =>
+			button
+				.setIcon("copy")
+				.setTooltip("Copy link")
+				.onClick(() => {
+					void copyText(url, "Link copied.");
+				})
+		);
+		item.addExtraButton((button) =>
+			button
+				.setIcon("external-link")
+				.setTooltip("Open link")
+				.onClick(() => {
+					window.open(url, "_blank");
+				})
+		);
+		item.addExtraButton((button) =>
+			button
+				.setIcon("pencil")
+				.setTooltip("Edit link")
+				.onClick(() => {
+					new ShareEditModal(this.app, this.plugin, share, () => {
+						void this.refresh();
+					}).open();
+				})
+		);
+		item.addExtraButton((button) =>
+			button
+				.setIcon("trash-2")
+				.setTooltip("Delete link")
+				.onClick(() => {
+					this.confirmDelete(share);
+				})
+		);
 	}
 
 	private confirmDelete(share: ShareLink): void {

@@ -109,14 +109,14 @@ test("history includes completed repeats, duplicate occurrences and replay after
 	}
 });
 
-test("history retains newest 200 plays, persists metadata only and restores without playback", async (t) => {
+test("history retains newest 1000 plays, persists metadata only and restores without playback", async (t) => {
 	const { store } = setup(t);
 	let persisted;
 	store.history.setPersistence((snapshot) => { persisted = structuredClone(snapshot); });
-	for (let i = 0; i < 205; i++) await store.playTrack({ ...song(String(i)), artist: "Artist", coverArt: "art-id", starred: "2026-09-01T00:00:00Z", password: "secret", url: "https://music.invalid/?token=secret" });
+	for (let i = 0; i < 1005; i++) await store.playTrack({ ...song(String(i)), artist: "Artist", coverArt: "art-id", starred: "2026-09-01T00:00:00Z", password: "secret", url: "https://music.invalid/?token=secret" });
 	const entries = store.history.getEntries();
-	assert.equal(entries.length, 200);
-	assert.equal(entries[0].song.id, "204");
+	assert.equal(entries.length, 1000);
+	assert.equal(entries[0].song.id, "1004");
 	assert.equal(entries.at(-1).song.id, "5");
 	assert.equal(entries[0].song.coverArt, "art-id");
 	assert.equal(entries[0].song.artist, "Artist");

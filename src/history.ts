@@ -3,6 +3,9 @@ import { activeServer } from "./servers";
 import type { StereoSettings } from "./settings";
 import type { Song } from "./subsonic";
 
+/** Play events kept locally, newest first. The list is paged in the sidebar. */
+export const HISTORY_LIMIT = 1000;
+
 export interface HistoryEntry {
 	song: Song;
 	playedAt: number;
@@ -92,7 +95,7 @@ export class HistoryStore {
 				entries.push({ song, playedAt: entry.playedAt });
 			}
 		}
-		this.entries = entries.sort((a, b) => b.playedAt - a.playedAt).slice(0, 200);
+		this.entries = entries.sort((a, b) => b.playedAt - a.playedAt).slice(0, HISTORY_LIMIT);
 	}
 
 	setPersistence(persist: (snapshot: HistorySnapshot) => void): void { this.persist = persist; }
@@ -112,7 +115,7 @@ export class HistoryStore {
 		if (connection !== this.connection) return;
 		const song = metadata(track);
 		if (!song) return;
-		this.entries = [{ song, playedAt: Date.now() }, ...this.entries].slice(0, 200);
+		this.entries = [{ song, playedAt: Date.now() }, ...this.entries].slice(0, HISTORY_LIMIT);
 		this.changed();
 	}
 

@@ -320,6 +320,56 @@ test("availability probes the inherited queue and drops verdicts with the old ac
 	assert.deepEqual(store.getState().queue, []);
 });
 
+test("a track the server confirms missing is skipped without an error", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getSong = async (id) => (id === b.id ? null : c);
+	await store.setQueue([a, b, c], 1);
+	audio.dispatchEvent(new Event("error"));
+	await flush();
+	assert.equal(store.availability.isMissing(b.id), true);
+	assert.equal(store.getState().track?.id, "c");
+	assert.equal(store.getState().error, null);
+});
+
+test("an unconfirmed media error keeps the track and reports it", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getSong = async () => { throw new Error("offline"); };
+	await store.setQueue([a, b, c], 1);
+	audio.dispatchEvent(new Event("error"));
+	await flush();
+	assert.equal(store.availability.isMissing(b.id), false);
+	assert.equal(store.getState().track?.id, "b");
+	assert.equal(store.getState().error, "Could not play this track.");
+	// The server answering "it is still there" is an ordinary error too.
+	client.getSong = async (id) => (id === b.id ? b : null);
+	audio.dispatchEvent(new Event("error"));
+	await flush();
+	assert.equal(store.availability.isMissing(b.id), false);
+	assert.equal(store.getState().track?.id, "b");
+	assert.equal(store.getState().error, "Could not play this track.");
+});
+
+test("known-missing tracks are stepped over before their stream is requested", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getSong = async (id) => (id === b.id ? null : c);
+	store.availability.markMissing(b.id);
+	await store.setQueue([a, b, c], 1);
+	assert.equal(store.getState().track?.id, "c");
+	assert.equal(store.getState().error, null);
+});
+
+test("a restored queue is checked against the server when keeping across servers", async (t) => {
+	const { store, client } = setup(t, { keepPlaybackAcrossServers: true });
+	const probed = [];
+	client.getSong = async (id) => { probed.push(id); return id === a.id ? a : null; };
+	store.restore({ queue: [a, b], index: 0, position: 0, volume: 0.5 });
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["a", "b"]);
+	await flush();
+	assert.deepEqual(probed.sort(), ["a", "b"]);
+	assert.equal(store.availability.isMissing(b.id), true);
+	assert.equal(store.availability.isMissing(a.id), false);
+});
+
 test("late playing events from the previous account never enter the new history", async (t) => {
 	const settings = { username: "first" };
 	const { store, audio } = setup(t, settings);
@@ -573,6 +623,7 @@ test("paused restoration reports media errors and stream configuration failures"
 	store.clearQueue();
 	await store.undoQueue();
 	audio.dispatchEvent(new Event("error"));
+	await flush();
 	assert.equal(store.getState().error, "Could not play this track.");
 	store.clearQueue();
 	client.streamUrl = () => { throw new Error("Configure the server"); };
@@ -1113,6 +1164,7 @@ test("failed repeat starts and media errors stop without automatic retries", asy
 		audio.error = { code: 3 };
 		audio.dispatchEvent(new Event("error"));
 		audio.finish();
+		await flush();
 		assert.equal(store.getState().track, b);
 		assert.equal(store.getState().playing, false);
 		assert.equal(store.getState().error, "Could not play this track.");

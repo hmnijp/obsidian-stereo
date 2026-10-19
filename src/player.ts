@@ -98,6 +98,8 @@ const POSITION_PERSIST_INTERVAL_SECONDS = 5;
 const SCROBBLE_AFTER_SECONDS = 240;
 /** Keep the generated random queue bounded while still allowing long backtracking. */
 const RANDOM_QUEUE_LIMIT = 1000;
+/** Tracks a single load steps over when they are known to be gone. */
+const MISSING_SKIP_LIMIT = 10;
 
 /**
  * Framework-free playback store. Owns the single `<audio>` element for the
@@ -261,6 +263,12 @@ export class PlayerStore {
 				: null,
 			error: null,
 		});
+		// A retained queue may name tracks this account never had: with the
+		// keep setting on, find out which are still there so the queue can
+		// show it before anything is played.
+		if (this.getSettings().keepPlaybackAcrossServers) {
+			this.availability.ensure(snapshot.queue.map((song) => song.id));
+		}
 	}
 
 	private notify(): void {
@@ -1121,6 +1129,18 @@ export class PlayerStore {
 
 	/** Load queue[index] into the audio element. */
 	private async loadCurrent(autoplay: boolean, startAt?: number): Promise<void> {
+		// A queue inherited from another server can name tracks this one no
+		// longer has: step over the ones already known to be gone instead of
+		// letting each of them fail in the audio element first.
+		let skipped = 0;
+		while (skipped < MISSING_SKIP_LIMIT) {
+			const queue = this.state.queue;
+			const current = queue[this.state.index];
+			if (!current || !this.availability.isMissing(current.id)) break;
+			if (this.state.index + 1 >= queue.length) break;
+			skipped += 1;
+			this.update({ index: this.state.index + 1 });
+		}
 		const track = this.state.queue[this.state.index] ?? null;
 		if (!track) return;
 		const version = ++this.loadVersion;
@@ -1180,8 +1200,13 @@ export class PlayerStore {
 	private prefetchNext(): void {
 		const nextTrack = this.state.queue[this.nextIndex(true)];
 		// Never prefetch direct-URL entries (internet radio): they are live
-		// streams, so "warming" one would hold an open connection.
-		if (!nextTrack || nextTrack.streamUrl) {
+		// streams, so "warming" one would hold an open connection. A track
+		// known to be gone on this server is not worth a request either.
+		if (
+			!nextTrack ||
+			nextTrack.streamUrl ||
+			this.availability.isMissing(nextTrack.id)
+		) {
 			this.dropPrefetch();
 			return;
 		}
@@ -1303,6 +1328,44 @@ export class PlayerStore {
 
 	private onError = (): void => {
 		if (!this.audio.src) return;
+		const track = this.state.track;
+		// A track the server no longer has fails without a Subsonic code, so
+		// confirm it before deciding: a confirmed miss is skipped over
+		// silently, anything else is an ordinary playback error.
+		if (track && !track.streamUrl) {
+			void this.skipIfMissing(track.id, this.loadVersion);
+			return;
+		}
+		this.failPlayback();
+	};
+
+	private failPlayback(): void {
 		this.update({ playing: false, error: "Could not play this track." });
+	}
+
+	/** Confirm a failed load against the server and step over a gone track. */
+	private async skipIfMissing(id: string, version: number): Promise<void> {
+		let missing: boolean;
+		try {
+			missing = (await this.client.getSong(id)) === null;
+		} catch {
+			// A network or auth failure is no proof that the track is gone.
+			missing = false;
+		}
+		// Another track took over while the server was asked.
+		if (version !== this.loadVersion) return;
+		if (!missing) {
+			this.failPlayback();
+			return;
+		}
+		this.availability.markMissing(id);
+		const index = this.nextIndex(false);
+		if (index < 0 || index === this.state.index) {
+			// Nowhere left to skip to: report it rather than loop.
+			this.failPlayback();
+			return;
+		}
+		this.update({ index });
+		await this.loadCurrent(true);
 	};
 }

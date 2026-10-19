@@ -22,7 +22,8 @@ import { navidromeAlbumUrl, navidromePlaylistUrl } from "./navidrome";
 import { normalizeServerConfig, type ServerConfig } from "./servers";
 import {
 	ShareCreateModal,
-	SharesModal,
+	SHARES_VIEW_TYPE,
+	SharesView,
 	resolveQueueShareTarget,
 	type ShareTarget,
 } from "./share";
@@ -137,8 +138,19 @@ export default class StereoPlugin extends Plugin {
 		});
 		this.player.history.setPersistence(() => { void this.saveAll(); });
 		this.applyVolumeControlSetting();
+		// Switching theme, snippet, or light/dark reloads the stylesheets, so a
+		// pane colour resolved out of them has to be read again.
+		const workspace = this.app.workspace;
+		if (workspace) {
+			this.registerEvent(
+				workspace.on("css-change", () => {
+					this.applyPaneBackgroundSetting();
+				})
+			);
+		}
 
 		this.registerView(STEREO_VIEW_TYPE, (leaf) => new StereoView(leaf, this));
+		this.registerView(SHARES_VIEW_TYPE, (leaf) => new SharesView(leaf, this));
 		this.addSettingTab(new StereoSettingTab(this.app, this));
 
 		const statusBarItem = this.addStatusBarItem();
@@ -235,7 +247,7 @@ export default class StereoPlugin extends Plugin {
 			id: "manage-share-links",
 			name: "Manage share links",
 			callback: () => {
-				this.openShares();
+				void this.openShares();
 			},
 		});
 
@@ -358,14 +370,40 @@ export default class StereoPlugin extends Plugin {
 		}
 	}
 
+	/** Repaint every open player after the pane-background setting or the
+	 * active theme changed. */
+	applyPaneBackgroundSetting(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) {
+				leaf.view.applyPaneBackgroundSetting();
+			}
+		}
+	}
+
+	/** Repaint the extras rows after their order changed in settings. */
+	applyExtrasOrderSetting(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) leaf.view.applyExtrasOrder();
+		}
+		this.statusBar?.applyExtrasOrder();
+	}
+
 	/** Open the share dialog for one library item or a queue snapshot. */
 	openShare(target: ShareTarget): void {
 		new ShareCreateModal(this.app, this, target).open();
 	}
 
-	/** Open the share-link manager. */
-	openShares(): void {
-		new SharesModal(this.app, this).open();
+	/** Open the share-link manager as a tab in the current window. */
+	async openShares(): Promise<void> {
+		const workspace = this.app.workspace;
+		const existing = workspace.getLeavesOfType(SHARES_VIEW_TYPE)[0];
+		if (existing) {
+			await workspace.revealLeaf(existing);
+			return;
+		}
+		const leaf = workspace.getLeaf("tab");
+		await leaf.setViewState({ type: SHARES_VIEW_TYPE, active: true });
+		await workspace.revealLeaf(leaf);
 	}
 
 	/** Open an artist page in the right-sidebar player. */
@@ -600,6 +638,9 @@ export default class StereoPlugin extends Plugin {
 	private refreshAllViews(): void {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) leaf.view.reloadForConnection();
+		}
+		for (const leaf of this.app.workspace.getLeavesOfType(SHARES_VIEW_TYPE)) {
+			if (leaf.view instanceof SharesView) leaf.view.reloadForConnection();
 		}
 	}
 

@@ -4,6 +4,7 @@ import {
 	Setting,
 	setIcon,
 	type SettingDefinitionItem,
+	type SettingGroupItem,
 } from "obsidian";
 import type StereoPlugin from "./main";
 import { ConfirmModal, ServerEditModal } from "./modals";
@@ -67,6 +68,23 @@ export type LyricsAlign = "left" | "center" | "right";
 
 /** Lifetime presets for newly created share links. */
 export type ShareTtlPreset = "1h" | "24h" | "7d" | "30d" | "1y";
+
+/** Background painted behind a Stereo pane. */
+export type PaneBackground = "theme" | "secondary" | "primary" | "custom";
+
+/**
+ * The custom colour is a plain hex string because the native colour picker
+ * only speaks `#rrggbb`.
+ */
+export const PANE_BACKGROUNDS: {
+	value: PaneBackground;
+	label: string;
+}[] = [
+	{ value: "theme", label: "Follow the theme" },
+	{ value: "secondary", label: "Sidebar colour" },
+	{ value: "primary", label: "Main area colour" },
+	{ value: "custom", label: "Custom colour" },
+];
 
 export const SHARE_TTL_PRESETS: ReadonlyArray<{
 	value: ShareTtlPreset;
@@ -156,8 +174,14 @@ export interface StereoSettings {
 	showDownloadButton: boolean;
 	/** Show the button that opens the player in a separate desktop window. */
 	showNewWindowButton: boolean;
+	/** Show the queue panel button in the extras row. */
+	showQueueButton: boolean;
+	/** Show the lyrics panel button in the extras row. */
+	showLyricsButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
+	/** Ids of the extras buttons, in the order the player renders them. */
+	extrasOrder: string[];
 	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
 	restoreOpenViews: boolean;
 	/** Show the play/pause control in Obsidian's status bar. */
@@ -168,6 +192,13 @@ export interface StereoSettings {
 	showStatusBarServers: boolean;
 	/** Scale of the status-bar mini player, in percent. */
 	statusBarScale: number;
+	/**
+	 * Background behind a Stereo pane. `theme` leaves Obsidian's own colour in
+	 * place; the other modes paint a fixed one.
+	 */
+	paneBackground: PaneBackground;
+	/** Hex colour used when `paneBackground` is `custom`. */
+	paneBackgroundCustom: string;
 	/** Persisted open state of the status-bar mini-player queue. */
 	statusBarQueueOpen: boolean;
 	/** Persisted open state of the status-bar mini-player lyrics. */
@@ -211,6 +242,145 @@ export interface StereoSettings {
 	searchSongCount: number;
 }
 
+/**
+ * Keys that show or hide one extras button. Narrower than `keyof
+ * StereoSettings` on purpose: a toggle may only point at a boolean.
+ */
+type ExtraButtonKey =
+	| "showRepeatButton"
+	| "showShuffleButton"
+	| "showQueueButton"
+	| "showLyricsButton"
+	| "showStationButton"
+	| "showRandomButton"
+	| "showPlaylistButton"
+	| "showShareButton"
+	| "showNavidromeButton"
+	| "showDownloadButton"
+	| "showNewWindowButton"
+	| "showRatingButton"
+	| "showFavoriteButton"
+	| "volumeControl";
+
+/**
+ * The extras row, listed in its default order. `extrasOrder` decides what the
+ * player actually renders; both surfaces lay their buttons out from it and skip
+ * the ids they do not have.
+ */
+export const EXTRA_BUTTONS: ReadonlyArray<{
+	id: string;
+	name: string;
+	desc: string;
+	key: ExtraButtonKey;
+}> = [
+	{
+		id: "repeat",
+		name: "Repeat button",
+		desc: "Show the repeat button in the extras row or the transport row.",
+		key: "showRepeatButton",
+	},
+	{
+		id: "shuffle",
+		name: "Shuffle button",
+		desc: "Show the shuffle button in the extras row or the transport row.",
+		key: "showShuffleButton",
+	},
+	{
+		id: "queue",
+		name: "Queue button",
+		desc: "Show the button that opens the queue panel next to the album art.",
+		key: "showQueueButton",
+	},
+	{
+		id: "lyrics",
+		name: "Lyrics button",
+		desc: "Show the button that opens the lyrics panel next to the album art.",
+		key: "showLyricsButton",
+	},
+	{
+		id: "station",
+		name: "Station button",
+		desc: "Show the button that starts a station from the current track.",
+		key: "showStationButton",
+	},
+	{
+		id: "random",
+		name: "Random song button",
+		desc: "Show the dice toggle. It keeps playing random songs until you turn it off.",
+		key: "showRandomButton",
+	},
+	{
+		id: "playlist",
+		name: "Add to playlist button",
+		desc: "Show the add-to-playlist button in the extras row for the current track.",
+		key: "showPlaylistButton",
+	},
+	{
+		id: "share",
+		name: "Share button",
+		desc: "Show the share button for the current track. Share links must also be enabled.",
+		key: "showShareButton",
+	},
+	{
+		id: "navidrome",
+		name: "Navidrome button",
+		desc: "Show the button that opens the current album in the Navidrome web UI.",
+		key: "showNavidromeButton",
+	},
+	{
+		id: "download",
+		name: "Download button",
+		desc: "Show the button that downloads the current track and copies the file to the clipboard. Requires server downloads.",
+		key: "showDownloadButton",
+	},
+	{
+		id: "newWindow",
+		name: "Open in new window button",
+		desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
+		key: "showNewWindowButton",
+	},
+	{
+		id: "rating",
+		name: "Rating button",
+		desc: "Show the star rating button in the extras row, next to the favorite heart.",
+		key: "showRatingButton",
+	},
+	{
+		id: "favorite",
+		name: "Favorite button",
+		desc: "Show the heart button in the extras row for the current track.",
+		key: "showFavoriteButton",
+	},
+	{
+		id: "volume",
+		name: "Volume control",
+		desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
+		key: "volumeControl",
+	},
+];
+
+/**
+ * Make a stored button order usable: unknown ids (dropped buttons, hand-edited
+ * data) disappear, duplicates keep their first position, and buttons missing
+ * from the array — the ones added by a newer version — are appended in their
+ * default order. Always returns a fresh array.
+ */
+export function normalizeExtrasOrder(stored: unknown): string[] {
+	const known = EXTRA_BUTTONS.map((button) => button.id);
+	const order: string[] = [];
+	if (Array.isArray(stored)) {
+		for (const id of stored) {
+			if (typeof id === "string" && known.includes(id) && !order.includes(id)) {
+				order.push(id);
+			}
+		}
+	}
+	for (const id of known) {
+		if (!order.includes(id)) order.push(id);
+	}
+	return order;
+}
+
 export const DEFAULT_SETTINGS: StereoSettings = {
 	servers: [],
 	activeServerId: "",
@@ -232,12 +402,19 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showNavidromeButton: true,
 	showDownloadButton: true,
 	showNewWindowButton: true,
+	showQueueButton: true,
+	showLyricsButton: true,
 	repeatShuffleInTransport: false,
+	// A fresh copy per settings object; normalizeExtrasOrder always returns a
+	// new array, so this one is never mutated.
+	extrasOrder: EXTRA_BUTTONS.map((button) => button.id),
 	restoreOpenViews: true,
 	showStatusBarPlayer: true,
 	showStatusBarTransport: false,
 	showStatusBarServers: true,
 	statusBarScale: 100,
+	paneBackground: "theme",
+	paneBackgroundCustom: "#1e1e1e",
 	statusBarQueueOpen: false,
 	statusBarLyricsOpen: false,
 	statusBarExtraRows: 7,
@@ -354,6 +531,17 @@ const FONT_SUGGESTIONS = [
 
 type ConnectionState = "untested" | "testing" | "ok" | "error";
 
+/** Native-control keys whose change restyles or repaints the status-bar player. */
+const STATUS_BAR_KEYS = new Set<string>([
+	"showStatusBarPlayer",
+	"showStatusBarTransport",
+	"showStatusBarServers",
+	"statusBarScale",
+	"statusBarExtraRows",
+	"showQueueButton",
+	"showLyricsButton",
+]);
+
 /** Native-control keys whose change must repaint open Now Playing views. */
 const VIEW_REFRESH_KEYS = new Set<string>([
 	"nowPlayingView",
@@ -371,6 +559,8 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showNavidromeButton",
 	"showDownloadButton",
 	"showNewWindowButton",
+	"showQueueButton",
+	"showLyricsButton",
 	"repeatShuffleInTransport",
 	"showRating",
 	"showArtOverlays",
@@ -385,6 +575,9 @@ export class StereoSettingTab extends PluginSettingTab {
 	private statusEl: HTMLElement | null = null;
 	/** Set while the lyrics preview row is mounted; restyles it in place. */
 	private applyLyricsPreview: (() => void) | null = null;
+	/** Keys changed since the last debounced commit; a slider drag adds many. */
+	private pendingKeys = new Set<string>();
+	private commitTimer: number | null = null;
 
 	constructor(app: App, plugin: StereoPlugin) {
 		super(app, plugin);
@@ -423,20 +616,15 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Track click action",
 						desc: "What clicking a track does. Right-click always offers every action.",
-						render: (setting) =>
-							this.segmented(
-								setting,
-								[
-									{ value: "play", label: "Play" },
-									{ value: "addToQueue", label: "Queue" },
-									{ value: "none", label: "Nothing" },
-								],
-								() => this.plugin.settings.trackClickAction,
-								async (value) => {
-									this.plugin.settings.trackClickAction = value;
-									await this.plugin.saveSettings();
-								}
-							),
+						control: {
+							type: "dropdown",
+							key: "trackClickAction",
+							options: {
+								play: "Play",
+								addToQueue: "Queue",
+								none: "Nothing",
+							},
+						},
 					},
 				],
 			},
@@ -482,30 +670,25 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Seek step",
 						desc: "Seconds the elapsed and remaining time labels skip when clicked. The mouse wheel over the seek bar always moves 5 seconds.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 1, max: 60, step: 1 },
-								() => this.plugin.settings.seekStep,
-								async (value) => {
-									this.plugin.settings.seekStep = value;
-									await this.plugin.saveSettings();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "seekStep",
+							min: 1,
+							max: 60,
+							step: 1,
+							displayFormat: (value) => `${value}s`,
+						},
 					},
 					{
 						name: "Station batch size",
 						desc: "Tracks added per station batch, including each More press.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 10, max: 50, step: 5 },
-								() => this.plugin.settings.stationBatchSize,
-								async (value) => {
-									this.plugin.settings.stationBatchSize = value;
-									await this.plugin.saveSettings();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "stationBatchSize",
+							min: 10,
+							max: 50,
+							step: 5,
+						},
 					},
 				],
 			},
@@ -521,69 +704,19 @@ export class StereoSettingTab extends PluginSettingTab {
 				],
 			},
 			{
-				type: "group",
+				// One row per extras button, in display order: the toggle turns a
+				// button on or off, the handle added by the framework moves it.
+				// Rows are never hidden by their own toggle — that would make the
+				// drag indices drift away from `extrasOrder`.
+				type: "list",
 				heading: "Player buttons",
+				items: this.extrasItems(),
+				onReorder: (from, to) => this.moveExtraButton(from, to),
+			},
+			{
+				type: "group",
+				heading: "Transport",
 				items: [
-					{
-						name: "Random song button",
-						desc: "Show the dice toggle. It keeps playing random songs until you turn it off.",
-						control: { type: "toggle", key: "showRandomButton" },
-					},
-					{
-						name: "Repeat button",
-						desc: "Show the repeat button in the extras row or the transport row.",
-						control: { type: "toggle", key: "showRepeatButton" },
-					},
-					{
-						name: "Shuffle button",
-						desc: "Show the shuffle button in the extras row or the transport row.",
-						control: { type: "toggle", key: "showShuffleButton" },
-					},
-					{
-						name: "Favorite button",
-						desc: "Show the heart button in the extras row for the current track.",
-						control: { type: "toggle", key: "showFavoriteButton" },
-					},
-					{
-						name: "Rating button",
-						desc: "Show the star rating button in the extras row, next to the favorite heart.",
-						control: { type: "toggle", key: "showRatingButton" },
-					},
-					{
-						name: "Add to playlist button",
-						desc: "Show the add-to-playlist button in the extras row for the current track.",
-						control: { type: "toggle", key: "showPlaylistButton" },
-					},
-					{
-						name: "Station button",
-						desc: "Show the button that starts a station from the current track.",
-						control: { type: "toggle", key: "showStationButton" },
-					},
-					{
-						name: "Share button",
-						desc: "Show the share button for the current track. Share links must also be enabled.",
-						control: { type: "toggle", key: "showShareButton" },
-					},
-					{
-						name: "Navidrome button",
-						desc: "Show the button that opens the current album in the Navidrome web UI.",
-						control: { type: "toggle", key: "showNavidromeButton" },
-					},
-					{
-						name: "Download button",
-						desc: "Show the button that downloads the current track and copies the file to the clipboard. Requires server downloads.",
-						control: { type: "toggle", key: "showDownloadButton" },
-					},
-					{
-						name: "Open in new window button",
-						desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
-						control: { type: "toggle", key: "showNewWindowButton" },
-					},
-					{
-						name: "Volume control",
-						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
-						control: { type: "toggle", key: "volumeControl" },
-					},
 					{
 						name: "Repeat and shuffle in transport row",
 						desc: "Place repeat to the left of Previous and shuffle to the right of Next, using the transport button size. When off, both stay in the extras row.",
@@ -618,32 +751,53 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Status bar player scale",
 						desc: "Scale the status-bar mini player and all of its content. 100% is the default.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 50, max: 200, step: 5 },
-								() => this.plugin.settings.statusBarScale,
-								async (value) => {
-									this.plugin.settings.statusBarScale = value;
-									await this.plugin.saveSettings();
-									this.plugin.applyStatusBarSetting();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "statusBarScale",
+							min: 50,
+							max: 200,
+							step: 5,
+							displayFormat: (value) => `${value}%`,
+						},
 					},
 					{
 						name: "Queue and lyrics rows",
 						desc: "How many rows the status-bar queue and lyrics show before scrolling. The mini player grows upward by this many rows.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 3, max: 20, step: 1 },
-								() => this.plugin.settings.statusBarExtraRows,
-								async (value) => {
-									this.plugin.settings.statusBarExtraRows = value;
-									await this.plugin.saveSettings();
-									this.plugin.applyStatusBarSetting();
-								}
+						control: {
+							type: "slider",
+							key: "statusBarExtraRows",
+							min: 3,
+							max: 20,
+							step: 1,
+						},
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "Appearance",
+				items: [
+					{
+						name: "Pane background",
+						desc: "Colour behind the Stereo pane. Follow the theme keeps whatever Obsidian paints there, which depends on where the pane sits. The status-bar mini player always uses the sidebar colour.",
+						control: {
+							type: "dropdown",
+							key: "paneBackground",
+							options: Object.fromEntries(
+								PANE_BACKGROUNDS.map((opt) => [opt.value, opt.label])
 							),
+						},
+					},
+					{
+						name: "Custom pane background",
+						desc: "Used when the pane background is set to Custom colour.",
+						visible: () =>
+							this.plugin.settings.paneBackground === "custom",
+						control: {
+							type: "color",
+							key: "paneBackgroundCustom",
+							defaultValue: DEFAULT_SETTINGS.paneBackgroundCustom,
+						},
 					},
 				],
 			},
@@ -713,18 +867,15 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Font size",
 						desc: "Size of the lyrics text, in pixels. Used when auto-adjust is off.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 12, max: 28, step: 1 },
-								() => this.plugin.settings.lyricsFontSize,
-								async (value) => {
-									this.plugin.settings.lyricsFontSize = value;
-									await this.plugin.saveSettings();
-									this.plugin.refreshNowPlayingViews();
-									this.applyLyricsPreview?.();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "lyricsFontSize",
+							min: 12,
+							max: 28,
+							step: 1,
+							displayFormat: (value) => `${value} px`,
+							disabled: () => this.plugin.settings.lyricsAutoSize,
+						},
 					},
 					{
 						name: "Font",
@@ -770,21 +921,71 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Artists",
 						desc: "Search results shown for this group.",
-						render: (setting) => this.countStepper(setting, "searchArtistCount"),
+						control: {
+							type: "slider",
+							key: "searchArtistCount",
+							min: 1,
+							max: 20,
+							step: 1,
+						},
 					},
 					{
 						name: "Albums",
 						desc: "Search results shown for this group.",
-						render: (setting) => this.countStepper(setting, "searchAlbumCount"),
+						control: {
+							type: "slider",
+							key: "searchAlbumCount",
+							min: 1,
+							max: 20,
+							step: 1,
+						},
 					},
 					{
 						name: "Tracks",
 						desc: "Search results shown for this group.",
-						render: (setting) => this.countStepper(setting, "searchSongCount"),
+						control: {
+							type: "slider",
+							key: "searchSongCount",
+							min: 1,
+							max: 20,
+							step: 1,
+						},
 					},
 				],
 			},
 		];
+	}
+
+	/** The extras buttons as setting rows, in the order the player shows them. */
+	private extrasItems(): SettingGroupItem[] {
+		const items: SettingGroupItem[] = [];
+		for (const id of normalizeExtrasOrder(this.plugin.settings.extrasOrder)) {
+			const button = EXTRA_BUTTONS.find((candidate) => candidate.id === id);
+			if (!button) continue;
+			items.push({
+				name: button.name,
+				desc: button.desc,
+				control: { type: "toggle", key: button.key },
+			});
+		}
+		return items;
+	}
+
+	/**
+	 * Persist a reorder of the extras buttons and repaint the players. The
+	 * framework has already moved the row, so the tab is not re-rendered: doing
+	 * that here would throw away the drag state and the focused handle.
+	 */
+	private moveExtraButton(from: number, to: number): void {
+		const order = normalizeExtrasOrder(this.plugin.settings.extrasOrder);
+		const target = Math.min(Math.max(to, 0), order.length - 1);
+		if (from === target || order[from] === undefined) return;
+		const [moved] = order.splice(from, 1);
+		if (moved === undefined) return;
+		order.splice(target, 0, moved);
+		this.plugin.settings.extrasOrder = order;
+		this.plugin.applyExtrasOrderSetting();
+		void this.plugin.saveSettings();
 	}
 
 	getControlValue(key: string): unknown {
@@ -798,19 +999,42 @@ export class StereoSettingTab extends PluginSettingTab {
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		if (key === "searchDebounceMs") value = Number(value);
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
-		await this.plugin.saveSettings();
 		if (key === "volumeControl") this.plugin.applyVolumeControlSetting();
-		if (
-			key === "showStatusBarPlayer" ||
-			key === "showStatusBarTransport" ||
-			key === "showStatusBarServers"
-		) {
-			this.plugin.applyStatusBarSetting();
-		}
 		if (key === "sharingEnabled") this.plugin.syncShareUi();
 		if (key === "highlightExternal") this.plugin.applyExternalHighlightSetting();
-		if (VIEW_REFRESH_KEYS.has(key)) this.plugin.refreshNowPlayingViews();
-		if (key === "lyricsAlign") this.applyLyricsPreview?.();
+		if (key === "paneBackground" || key === "paneBackgroundCustom") {
+			this.plugin.applyPaneBackgroundSetting();
+		}
+		if (key === "lyricsAlign" || key === "lyricsFontSize") {
+			this.applyLyricsPreview?.();
+		}
+		this.scheduleCommit(key);
+	}
+
+	/**
+	 * A slider fires on every step of a drag, so persisting and repainting wait
+	 * until the drag pauses instead of running dozens of times per second.
+	 */
+	private scheduleCommit(key: string): void {
+		this.pendingKeys.add(key);
+		if (this.commitTimer !== null) window.clearTimeout(this.commitTimer);
+		this.commitTimer = window.setTimeout(() => {
+			this.commitTimer = null;
+			const keys = [...this.pendingKeys];
+			this.pendingKeys.clear();
+			if (keys.some((pending) => STATUS_BAR_KEYS.has(pending))) {
+				this.plugin.applyStatusBarSetting();
+			}
+			if (
+				keys.some(
+					(pending) =>
+						VIEW_REFRESH_KEYS.has(pending) || pending === "lyricsFontSize"
+				)
+			) {
+				this.plugin.refreshNowPlayingViews();
+			}
+			void this.plugin.saveSettings();
+		}, 150);
 	}
 
 	// ------------------------------------------------------------------
@@ -860,7 +1084,7 @@ export class StereoSettingTab extends PluginSettingTab {
 		const info = row.createDiv({ cls: "stereo-server-row-main" });
 		const title = info.createDiv({ cls: "stereo-server-row-title" });
 		title.setText(serverLabel(server));
-		const meta = info.createDiv({ cls: "stereo-share-row-meta" });
+		const meta = info.createDiv({ cls: "stereo-server-row-meta" });
 		meta.setText(
 			[
 				server.wanUrl ? `WAN: ${server.wanUrl}` : "",
@@ -875,7 +1099,7 @@ export class StereoSettingTab extends PluginSettingTab {
 				.join(" · ")
 		);
 
-		const actions = row.createDiv({ cls: "stereo-share-row-actions" });
+		const actions = row.createDiv({ cls: "stereo-server-row-actions" });
 		this.serverActionIcon(actions, "pencil", "Edit server", () => {
 			this.editServer(server);
 		});
@@ -1057,94 +1281,6 @@ export class StereoSettingTab extends PluginSettingTab {
 		return () => {
 			if (this.applyLyricsPreview === apply) this.applyLyricsPreview = null;
 		};
-	}
-
-	// ------------------------------------------------------------------
-	// Search
-
-	private countStepper(
-		setting: Setting,
-		key: "searchArtistCount" | "searchAlbumCount" | "searchSongCount"
-	): void {
-		this.stepper(
-			setting,
-			{ min: 1, max: 20, step: 1 },
-			() => this.plugin.settings[key],
-			async (value) => {
-				this.plugin.settings[key] = value;
-				await this.plugin.saveSettings();
-			}
-		);
-	}
-
-	// ------------------------------------------------------------------
-	// Controls
-
-	/** Connected buttons showing every choice at once; one is always active. */
-	private segmented<T extends string>(
-		setting: Setting,
-		options: ReadonlyArray<{ value: T; label: string }>,
-		get: () => T,
-		set: (value: T) => Promise<void>
-	): void {
-		const group = setting.controlEl.createDiv({ cls: "stereo-segmented" });
-		const buttons = new Map<T, HTMLButtonElement>();
-		const refresh = (): void => {
-			const active = get();
-			for (const [value, button] of buttons) {
-				button.toggleClass("stereo-segmented-active", value === active);
-			}
-		};
-		for (const { value, label } of options) {
-			const button = group.createEl("button", {
-				cls: "stereo-segmented-option",
-				text: label,
-			});
-			button.addEventListener("click", () => {
-				void set(value).then(refresh);
-			});
-			buttons.set(value, button);
-		}
-		refresh();
-	}
-
-	/** Number field with −/+ buttons; typed values are clamped to the range. */
-	private stepper(
-		setting: Setting,
-		range: { min: number; max: number; step: number },
-		get: () => number,
-		set: (value: number) => Promise<void>
-	): void {
-		const group = setting.controlEl.createDiv({ cls: "stereo-stepper" });
-
-		const minus = group.createEl("button", { cls: "stereo-stepper-button" });
-		setIcon(minus, "minus");
-		const input = group.createEl("input", {
-			cls: "stereo-stepper-input",
-			attr: { type: "number", min: range.min, max: range.max },
-		});
-		input.value = String(get());
-		const plus = group.createEl("button", { cls: "stereo-stepper-button" });
-		setIcon(plus, "plus");
-
-		const apply = (raw: number): void => {
-			const value = Math.min(
-				range.max,
-				Math.max(range.min, Math.round(raw / range.step) * range.step)
-			);
-			input.value = String(value);
-			minus.disabled = value <= range.min;
-			plus.disabled = value >= range.max;
-			if (value !== get()) void set(value);
-		};
-
-		minus.addEventListener("click", () => apply(get() - range.step));
-		plus.addEventListener("click", () => apply(get() + range.step));
-		input.addEventListener("change", () => {
-			const raw = Number(input.value);
-			apply(Number.isFinite(raw) ? raw : get());
-		});
-		apply(get());
 	}
 }
 

@@ -58,7 +58,7 @@ test("history waits for actual audio, ignoring restore, queue edits, prefetch an
 	const { store, audio } = setup(t);
 	store.restore({ queue: [a, b], index: 0, position: 30, volume: 0.5 });
 	await store.addToQueue([c]);
-	store.playNext([d]);
+	await store.playNext([d]);
 	assert.equal(store.history.getEntries().length, 0);
 	audio.playError = new Error("Unavailable");
 	await store.togglePlayPause();
@@ -458,8 +458,29 @@ test("move to next handles entries before and after current, and disables no-ops
 	assert.deepEqual(store.getState().queue, [b, a, d, a, c]);
 	assert.equal(store.getState().index, 1);
 	store.clearQueue();
-	store.playNext([a, b]);
+	await store.playNext([a, b]);
 	assert.equal(store.canMoveToNext(0), false);
+});
+
+test("play next inserts after the current track while add to queue appends", async (t) => {
+	const { store } = setup(t);
+	await store.setQueue([a, b, c], 1);
+	await store.playNext([d]);
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["a", "b", "d", "c"]);
+	await store.addToQueue([a]);
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["a", "b", "d", "c", "a"]);
+});
+
+test("play next starts playback when nothing is queued yet", async (t) => {
+	const { store, audio } = setup(t);
+	assert.equal(store.getState().index, -1);
+	await store.playNext([b, c]);
+	const state = store.getState();
+	assert.deepEqual(state.queue.map((song) => song.id), ["b", "c"]);
+	assert.equal(state.index, 0);
+	assert.equal(state.track?.id, "b");
+	assert.equal(state.playing, true);
+	assert.equal(audio.src, "https://music.invalid/b");
 });
 
 for (const paused of [false, true]) {
@@ -647,17 +668,6 @@ test("a stale play rejection cannot overwrite playback restored by undo", async 
 	assert.equal(store.getState().error, null);
 });
 
-test("undo can restore a queue that had no selected track", async (t) => {
-	const { store, audio } = setup(t);
-	store.playNext([a, b]);
-	store.clearQueue();
-	await store.undoQueue();
-	assert.deepEqual(store.getState().queue, [a, b]);
-	assert.equal(store.getState().index, -1);
-	assert.equal(store.getState().track, null);
-	assert.equal(audio.src, "");
-});
-
 function repeatMode(store, mode) {
 	while (store.getState().repeat !== mode) store.cycleRepeat();
 }
@@ -707,17 +717,14 @@ for (const mode of ["off", "queue", "track"]) {
 		}
 	});
 
-	test(`${mode}: empty and unselected queues cannot restart; clear stops and undo keeps the current repeat selection`, async (t) => {
+	test(`${mode}: an empty queue cannot restart; clear stops and undo keeps the current repeat selection`, async (t) => {
 		const { store, audio, saved } = setup(t);
 		repeatMode(store, mode);
-		for (const queued of [false, true]) {
-			if (queued) store.playNext([a, b]);
-			assert.equal(store.canNext(), false);
-			await store.next();
-			audio.finish();
-			assert.equal(audio.src, "");
-			assert.equal(store.getState().playing, false);
-		}
+		assert.equal(store.canNext(), false);
+		await store.next();
+		audio.finish();
+		assert.equal(audio.src, "");
+		assert.equal(store.getState().playing, false);
 		await store.setQueue([a, b], 1);
 		audio.tick(32);
 		await store.togglePlayPause();

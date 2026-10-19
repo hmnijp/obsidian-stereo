@@ -374,7 +374,7 @@ export class LibraryPane extends Component {
 			if (!entry) return;
 			const menu = new Menu();
 			menu.addItem((item) => item.setTitle("Play again").setIcon("play").onClick(() => { void this.plugin.player.playHistoryEntry(entry); }));
-			menu.addItem((item) => item.setTitle("Add to queue").setIcon("list-plus").onClick(() => { void this.plugin.player.playHistoryEntry(entry, true); }));
+			menu.addItem((item) => item.setTitle("Add to queue").setIcon("list-end").onClick(() => { void this.plugin.player.playHistoryEntry(entry, true); }));
 			const song = entry.song;
 			if (!song.streamUrl) {
 				const albumId = song.albumId;
@@ -767,7 +767,7 @@ export class LibraryPane extends Component {
 				cls: "stereo-list-row-sub", text: date.toLocaleString(),
 				attr: { datetime: date.toISOString() },
 			});
-			for (const [action, label, icon] of [["play", "Play again", "play"], ["append", "Add to queue", "list-plus"]]) {
+			for (const [action, label, icon] of [["play", "Play again", "play"], ["append", "Add to queue", "list-end"]]) {
 				const button = row.createEl("button", {
 					cls: "stereo-button clickable-icon",
 					attr: { "data-history-action": action!, "data-history-index": String(index), "aria-label": `${label}: ${song.title}`, title: label! },
@@ -1646,11 +1646,11 @@ export class LibraryPane extends Component {
 		);
 		menu.addItem((item) =>
 			item.setTitle("Play next").setIcon("corner-down-right").onClick(() => {
-				this.plugin.player.playNext([song]);
+				void this.plugin.player.playNext([song]);
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Add to queue").setIcon("list-plus").onClick(() => {
+			item.setTitle("Add to queue").setIcon("list-end").onClick(() => {
 				void this.plugin.player.addToQueue([song]);
 			})
 		);
@@ -1665,7 +1665,7 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item
 				.setTitle("Add to playlist…")
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!!song.streamUrl)
 				.onClick(() => {
 					void this.addToPlaylist([song]);
@@ -1765,12 +1765,12 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item.setTitle("Play next").setIcon("corner-down-right").onClick(() => {
 				void this.withAlbumSongs(album, (songs) => {
-					this.plugin.player.playNext(songs);
+					void this.plugin.player.playNext(songs);
 				});
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Add to queue").setIcon("list-plus").onClick(() => {
+			item.setTitle("Add to queue").setIcon("list-end").onClick(() => {
 				void this.withAlbumSongs(album, (songs) =>
 					this.plugin.player.addToQueue(songs)
 				);
@@ -1787,7 +1787,7 @@ export class LibraryPane extends Component {
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Add to playlist…").setIcon("list-music").onClick(() => {
+			item.setTitle("Add to playlist…").setIcon("list-plus").onClick(() => {
 				void this.withAlbumSongs(album, (songs) => this.addToPlaylist(songs));
 			})
 		);
@@ -1881,19 +1881,19 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item.setTitle("Play next").setIcon("corner-down-right").onClick(() => {
 				void this.withPlaylistSongs(playlist, (songs) => {
-					this.plugin.player.playNext(songs);
+					void this.plugin.player.playNext(songs);
 				});
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Add to queue").setIcon("list-plus").onClick(() => {
+			item.setTitle("Add to queue").setIcon("list-end").onClick(() => {
 				void this.withPlaylistSongs(playlist, (songs) =>
 					this.plugin.player.addToQueue(songs)
 				);
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Add to playlist…").setIcon("list-music").onClick(() => {
+			item.setTitle("Add to playlist…").setIcon("list-plus").onClick(() => {
 				void this.withPlaylistSongs(playlist, (songs) =>
 					this.addToPlaylist(songs)
 				);

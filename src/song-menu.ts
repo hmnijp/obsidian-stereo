@@ -14,7 +14,7 @@ export function addSongPlaylistItem(
 	menu.addItem((item) =>
 		item
 			.setTitle("Add to playlist…")
-			.setIcon("list-music")
+			.setIcon("list-plus")
 			.setDisabled(!!song.streamUrl)
 			.onClick(() => {
 				void plugin.addToPlaylist([song]);

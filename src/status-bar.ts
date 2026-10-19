@@ -11,6 +11,7 @@ import {
 	syncStarButtons,
 } from "./rating-button";
 import { activeServer, serverLabel } from "./servers";
+import { normalizeExtrasOrder } from "./settings";
 import { shareTargetForPlaylist, shareTargetForSong } from "./share";
 import {
 	addCopyCoverItem,
@@ -75,6 +76,10 @@ export class StatusBarPlayer {
 	private volumeControl: HTMLElement | null = null;
 	private volumeRow: HTMLElement | null = null;
 	private volumeSlider: HTMLInputElement | null = null;
+	/** Container of the track-action buttons; the order setting is applied here. */
+	private extrasMain: HTMLElement | null = null;
+	/** Order already applied to `extrasMain`, to skip re-appending every tick. */
+	private appliedExtrasOrder = "";
 	private queuePanel: HTMLElement | null = null;
 	private queueList: HTMLElement | null = null;
 	private queueVisible = false;
@@ -97,9 +102,14 @@ export class StatusBarPlayer {
 		this.item = item;
 		this.queueVisible = plugin.settings.statusBarQueueOpen === true;
 		// The queue and lyrics share the mini player's top slot: at most one is
-		// open at a time.
+		// open at a time. A hidden button would leave its panel with no way to
+		// close it again, so the saved state is ignored in that case.
+		this.queueVisible =
+			this.queueVisible && plugin.settings.showQueueButton === true;
 		this.lyricsVisible =
-			!this.queueVisible && plugin.settings.statusBarLyricsOpen === true;
+			!this.queueVisible &&
+			plugin.settings.showLyricsButton === true &&
+			plugin.settings.statusBarLyricsOpen === true;
 		this.item.addClass("stereo-status-bar-item");
 		this.item.setAttribute("aria-haspopup", "true");
 		this.item.setAttribute("aria-expanded", "false");
@@ -371,6 +381,7 @@ export class StatusBarPlayer {
 		this.volumeControl = null;
 		this.volumeRow = null;
 		this.volumeSlider = null;
+		this.extrasMain = null;
 		this.queuePanel = null;
 		this.queueList = null;
 		this.renderedQueue = null;
@@ -581,6 +592,8 @@ export class StatusBarPlayer {
 		const extrasMain = extras.createDiv({
 			cls: "stereo-status-extras-main",
 		});
+		this.extrasMain = extrasMain;
+		this.appliedExtrasOrder = "";
 		const extrasOpen = extras.createDiv({
 			cls: "stereo-status-extras-open",
 		});
@@ -617,7 +630,7 @@ export class StatusBarPlayer {
 		);
 		this.playlistButton = this.iconButton(
 			extrasMain,
-			"list-music",
+			"list-plus",
 			"Add to playlist",
 			() => this.addToPlaylist()
 		);
@@ -778,6 +791,22 @@ export class StatusBarPlayer {
 		this.serversEl?.toggleClass(
 			"stereo-hidden",
 			!this.plugin.settings.showStatusBarServers
+		);
+		// A hidden panel button would leave its panel with no way to close it,
+		// so hiding the button closes the panel as well.
+		if (!this.plugin.settings.showQueueButton && this.queueVisible) {
+			this.setQueueOpen(false);
+		}
+		if (!this.plugin.settings.showLyricsButton && this.lyricsVisible) {
+			this.setLyricsOpen(false);
+		}
+		this.queueButton?.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.showQueueButton
+		);
+		this.lyricsButton?.toggleClass(
+			"stereo-hidden",
+			!this.plugin.settings.showLyricsButton
 		);
 		if (this.queueVisible) this.renderQueue(state);
 		this.queueButton?.toggleClass(
@@ -976,6 +1005,38 @@ export class StatusBarPlayer {
 		if (!settings.volumeControl) {
 			this.volumeRow?.addClass("stereo-hidden");
 		}
+		this.applyExtrasOrder();
+	}
+
+	/**
+	 * Lay the mini player's track-action buttons out in the same order as the
+	 * player pane. The popup-only buttons (open player, open in a new window)
+	 * live in their own group on the right and are not part of the order.
+	 */
+	applyExtrasOrder(): void {
+		const main = this.extrasMain;
+		if (!main) return;
+		const order = normalizeExtrasOrder(this.plugin.settings.extrasOrder);
+		const key = order.join("|");
+		// renderPopup runs on every player tick; moving nine nodes each time
+		// would be wasted work.
+		if (key === this.appliedExtrasOrder) return;
+		const buttons: Record<string, HTMLElement | null> = {
+			queue: this.queueButton,
+			lyrics: this.lyricsButton,
+			station: this.stationButton,
+			random: this.randomButton,
+			playlist: this.playlistButton,
+			share: this.shareButton,
+			navidrome: this.navidromeButton,
+			download: this.downloadButton,
+			volume: this.volumeControl,
+		};
+		for (const id of order) {
+			const el = buttons[id];
+			if (el) main.appendChild(el);
+		}
+		this.appliedExtrasOrder = key;
 	}
 
 	private renderHeader(track: Song | null): void {
@@ -1070,7 +1131,7 @@ export class StatusBarPlayer {
 		menu.addItem((item) =>
 			item
 				.setTitle("Add to playlist…")
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!canAddSong)
 				.onClick(() => {
 					if (canAddSong) void this.plugin.addToPlaylist([track]);
@@ -1083,7 +1144,7 @@ export class StatusBarPlayer {
 						? `Add ${collection.kind} to playlist…`
 						: "Add album/playlist to playlist…"
 				)
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!collection)
 				.onClick(() => {
 					if (collection) {
@@ -1118,7 +1179,7 @@ export class StatusBarPlayer {
 		menu.addItem((item) => {
 			item
 				.setTitle("Move to next")
-				.setIcon("list-plus")
+				.setIcon("list-end")
 				.setDisabled(!this.plugin.player.canMoveToNext(index))
 				.onClick(() => {
 					if (this.plugin.player.getState().queue === queue) {

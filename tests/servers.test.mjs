@@ -6,6 +6,8 @@ const obsidianDouble = `
 	export class PluginSettingTab {}
 	export class App {}
 	export class Modal {}
+	export class ConfirmationModal {}
+	export class ItemView {}
 	export class Notice {}
 	export class FuzzySuggestModal {}
 	export class Setting {}

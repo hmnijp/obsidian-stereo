@@ -40,6 +40,14 @@ body {
 		calc(var(--size-4-3) + var(--stereo-status-bar-clearance, 0px));
 }
 
+/* Optional fixed background behind the pane (Settings → Appearance). The view
+   supplies the colour as a literal value, so themes that recolour a variable
+   inside a sidebar cannot change what lands here; the class is what turns the
+   setting on — without it the pane keeps Obsidian's own background. */
+.workspace-leaf-content .view-content.stereo-view.stereo-pane-surface {
+	background-color: var(--stereo-pane-background);
+}
+
 /* Tripled so the utility out-ranks any two-class display rule (e.g. the
    viz-mode art swaps) from any position, without !important. */
 .stereo-hidden.stereo-hidden.stereo-hidden {
@@ -104,82 +112,6 @@ body {
 .stereo-conn-retest {
 	flex: none;
 	font-size: var(--font-ui-small);
-}
-
-/* Segmented control: connected buttons, every choice visible. */
-.stereo-segmented {
-	display: flex;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-	overflow: hidden;
-}
-
-.stereo-segmented-option {
-	border: none;
-	border-radius: 0;
-	background: transparent;
-	color: var(--text-muted);
-	padding: var(--size-2-2) var(--size-4-2);
-	font-size: var(--font-ui-small);
-	cursor: pointer;
-	box-shadow: none;
-}
-
-.stereo-segmented-option + .stereo-segmented-option {
-	border-left: 1px solid var(--background-modifier-border);
-}
-
-.stereo-segmented-option:hover {
-	color: var(--text-normal);
-	background: var(--background-modifier-hover);
-}
-
-.stereo-segmented-active,
-.stereo-segmented-active:hover {
-	color: var(--text-on-accent);
-	background: var(--interactive-accent);
-	font-weight: var(--font-semibold);
-}
-
-/* Stepper: −/+ around a number field, for values where the number matters. */
-.stereo-stepper {
-	display: flex;
-	align-items: center;
-	gap: var(--size-2-1);
-}
-
-.stereo-stepper-button {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: var(--input-height);
-	height: var(--input-height);
-	padding: 0;
-	border-radius: var(--radius-m);
-	box-shadow: none;
-}
-
-.stereo-stepper-button svg {
-	width: 14px;
-	height: 14px;
-}
-
-.stereo-stepper-button:disabled {
-	color: var(--text-faint);
-	cursor: default;
-}
-
-.stereo-stepper-input {
-	width: 5ch;
-	text-align: center;
-	-moz-appearance: textfield;
-	appearance: textfield;
-}
-
-.stereo-stepper-input::-webkit-outer-spin-button,
-.stereo-stepper-input::-webkit-inner-spin-button {
-	appearance: none;
-	margin: 0;
 }
 
 /* Lyrics preview: renders the font settings live, like the real panel. */
@@ -2086,55 +2018,8 @@ body {
 
 /* --- Share links --- */
 
-.stereo-share-modal {
-	min-width: min(460px, 90vw);
-}
-
-.stereo-share-target {
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	padding: 10px 12px;
-	margin-bottom: 10px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-}
-
-.stereo-share-target-icon {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	color: var(--text-muted);
-}
-
-.stereo-share-target-icon svg {
-	width: 18px;
-	height: 18px;
-}
-
-.stereo-share-target-text {
-	min-width: 0;
-}
-
-.stereo-share-target-title {
-	font-weight: var(--font-semibold);
-	overflow-wrap: anywhere;
-}
-
-.stereo-share-target-sub,
-.stereo-share-hint,
-.stereo-share-result-details {
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-}
-
-.stereo-share-target-sub {
-	margin-top: 2px;
-}
-
-.stereo-share-hint {
-	margin: 0 0 12px;
-	line-height: var(--line-height-normal);
+.workspace-leaf-content .view-content.stereo-shares-view {
+	padding: var(--size-4-6);
 }
 
 .stereo-share-error {
@@ -2143,51 +2028,9 @@ body {
 	font-size: var(--font-ui-smaller);
 }
 
-.stereo-share-actions {
-	display: flex;
-	flex-wrap: wrap;
-	justify-content: flex-end;
-	gap: 8px;
-	margin-top: 12px;
-}
-
-.stereo-share-result-heading {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin-bottom: 10px;
-	color: var(--text-success);
-	font-weight: var(--font-semibold);
-}
-
-.stereo-share-result-icon {
-	display: flex;
-	align-items: center;
-}
-
-.stereo-share-link-input {
-	width: 100%;
-	font-family: var(--font-monospace);
-	font-size: var(--font-ui-smaller);
-}
-
-.stereo-share-result-details {
-	display: flex;
-	flex-direction: column;
-	gap: 2px;
-	margin-top: 10px;
-	line-height: var(--line-height-normal);
-}
-
-.stereo-share-toolbar {
-	display: flex;
-	justify-content: flex-end;
-	margin-bottom: 8px;
-}
-
 .stereo-share-status {
 	min-height: 1.4em;
-	margin-bottom: 8px;
+	margin: var(--size-4-2) 0;
 	color: var(--text-muted);
 	font-size: var(--font-ui-small);
 	line-height: var(--line-height-normal);
@@ -2197,43 +2040,12 @@ body {
 	color: var(--text-error);
 }
 
-.stereo-share-list {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-	max-height: 55vh;
-	overflow-y: auto;
+.stereo-share-status button {
+	margin-top: var(--size-4-2);
 }
 
-.stereo-share-row {
-	display: flex;
-	flex-wrap: wrap;
-	align-items: flex-start;
-	gap: 10px;
-	padding: 10px 12px;
-	border: 1px solid var(--background-modifier-border);
-	border-radius: var(--radius-m);
-}
-
-.stereo-share-row-main {
-	flex: 1 1 220px;
-	min-width: 0;
-}
-
-.stereo-share-row-title {
-	font-weight: var(--font-semibold);
-	overflow-wrap: anywhere;
-}
-
-.stereo-share-row-meta {
-	margin-top: 2px;
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-	line-height: var(--line-height-normal);
-}
-
-.stereo-share-row-url {
-	margin-top: 4px;
+.stereo-share-url {
+	margin-top: var(--size-4-1);
 	color: var(--text-faint);
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
@@ -2241,18 +2053,8 @@ body {
 	user-select: text;
 }
 
-.stereo-share-row-actions {
-	display: flex;
-	flex-shrink: 0;
-	gap: 2px;
-}
-
-.stereo-share-expired {
+.stereo-share-item.stereo-share-expired {
 	opacity: 0.7;
-}
-
-.stereo-share-expired .stereo-share-row-meta {
-	color: var(--text-error);
 }
 
 /* --- Servers --- */
@@ -2293,6 +2095,19 @@ body {
 	gap: 8px;
 	font-weight: var(--font-semibold);
 	overflow-wrap: anywhere;
+}
+
+.stereo-server-row-meta {
+	margin-top: 2px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	line-height: var(--line-height-normal);
+}
+
+.stereo-server-row-actions {
+	display: flex;
+	flex-shrink: 0;
+	gap: 2px;
 }
 
 .stereo-server-active-badge {
@@ -2413,7 +2228,8 @@ body {
 	box-sizing: border-box;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
-	background: var(--background-primary);
+	/* Always the sidebar colour, whatever the pane background setting says. */
+	background: var(--background-secondary);
 	box-shadow: var(--shadow-s);
 	color: var(--text-normal);
 	transform: scale(var(--stereo-status-scale, 1));
@@ -2541,7 +2357,9 @@ body {
 	height: 44px;
 	overflow: hidden;
 	border-radius: var(--radius-s);
-	background: var(--background-secondary);
+	/* The popup itself is the sidebar colour, so the empty-art tile takes the
+	   opposite end of the scale to stay visible against it. */
+	background: var(--background-primary);
 }
 
 .stereo-status-cover-img {

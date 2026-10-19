@@ -34,8 +34,13 @@ import {
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
 import { WHEEL_SEEK_SECONDS, type PlayerState } from "./player";
-import { NOW_PLAYING_VIEWS, type NowPlayingView } from "./settings";
+import {
+	NOW_PLAYING_VIEWS,
+	normalizeExtrasOrder,
+	type NowPlayingView,
+} from "./settings";
 import type { Song } from "./subsonic";
+import { resolveThemeColor } from "./theme";
 
 export const STEREO_VIEW_TYPE = "stereo-player";
 
@@ -302,6 +307,7 @@ export class StereoView extends ItemView {
 		this.setActiveTab("nowPlaying");
 		this.applyNowPlayingView();
 		this.applyExternalHighlightSetting();
+		this.applyPaneBackgroundSetting();
 		this.syncShareUi();
 		this.register(
 			this.plugin.favorites.subscribe(() => {
@@ -460,7 +466,7 @@ export class StereoView extends ItemView {
 		menu.addItem((item) =>
 			item
 				.setTitle("Add to playlist…")
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!canAddSong)
 				.onClick(() => {
 					if (canAddSong) void this.library.addToPlaylist([track]);
@@ -473,7 +479,7 @@ export class StereoView extends ItemView {
 						? `Add ${collection.kind} to playlist…`
 						: "Add album/playlist to playlist…"
 				)
-				.setIcon("list-music")
+				.setIcon("list-plus")
 				.setDisabled(!collection)
 				.onClick(() => {
 					if (collection) {
@@ -554,6 +560,33 @@ export class StereoView extends ItemView {
 		);
 	}
 
+	/**
+	 * Paint the pane background, or step out of the way when the theme's own
+	 * colour is wanted. The colour is resolved on this pane's document — so a
+	 * popout window follows its own theme — and lands as a literal value on the
+	 * pane element, because a theme may redefine the variable inside a sidebar.
+	 */
+	applyPaneBackgroundSetting(): void {
+		const mode = this.plugin.settings.paneBackground;
+		const color =
+			mode === "custom"
+				? this.plugin.settings.paneBackgroundCustom
+				: mode === "theme"
+					? ""
+					: resolveThemeColor(
+							mode === "secondary"
+								? "--background-secondary"
+								: "--background-primary",
+							this.contentEl.doc
+						);
+		this.contentEl.toggleClass("stereo-pane-surface", color !== "");
+		if (color === "") {
+			this.contentEl.style.removeProperty("--stereo-pane-background");
+		} else {
+			this.contentEl.style.setProperty("--stereo-pane-background", color);
+		}
+	}
+
 	/** Show or hide share controls after the settings toggle changes. */
 	syncShareUi(): void {
 		const enabled = this.plugin.settings.sharingEnabled;
@@ -592,6 +625,8 @@ export class StereoView extends ItemView {
 		const settings = this.plugin.settings;
 		this.repeatButton?.toggleClass("stereo-hidden", !settings.showRepeatButton);
 		this.shuffleButton?.toggleClass("stereo-hidden", !settings.showShuffleButton);
+		this.queueButton?.toggleClass("stereo-hidden", !settings.showQueueButton);
+		this.lyricsButton?.toggleClass("stereo-hidden", !settings.showLyricsButton);
 		this.randomButton?.toggleClass("stereo-hidden", !settings.showRandomButton);
 		this.stationButton?.toggleClass("stereo-hidden", !settings.showStationButton);
 		this.playlistButton?.toggleClass("stereo-hidden", !settings.showPlaylistButton);
@@ -613,6 +648,46 @@ export class StereoView extends ItemView {
 			"stereo-hidden",
 			!settings.showNewWindowButton
 		);
+		// A hidden panel button leaves no way to close its panel, so the panel
+		// follows its button.
+		if (!settings.showQueueButton && this.queueVisible) {
+			this.queueVisible = false;
+			this.applyArtPanels();
+		}
+		if (!settings.showLyricsButton && this.lyricsVisible) {
+			this.lyricsVisible = false;
+			this.applyArtPanels();
+		}
+		this.applyExtrasOrder();
+	}
+
+	/** Lay the extras row out in the order picked in settings. */
+	applyExtrasOrder(): void {
+		if (!this.extrasRow) return;
+		const buttons: Record<string, HTMLElement | null | undefined> = {
+			repeat: this.repeatButton,
+			shuffle: this.shuffleButton,
+			queue: this.queueButton,
+			lyrics: this.lyricsButton,
+			station: this.stationButton,
+			random: this.randomButton,
+			playlist: this.playlistButton,
+			share: this.trackShareButton,
+			navidrome: this.navidromeButton,
+			download: this.downloadButton,
+			newWindow: this.newWindowButton,
+			rating: this.extrasRatingControl,
+			favorite: this.favoriteButton,
+			volume: this.volumeControlEl,
+		};
+		for (const id of normalizeExtrasOrder(this.plugin.settings.extrasOrder)) {
+			const el = buttons[id];
+			// Repeat and shuffle sit in the transport row while that option is
+			// on; appending them here would drag them back out.
+			if (el && el.parentElement === this.extrasRow) {
+				this.extrasRow.appendChild(el);
+			}
+		}
 	}
 
 	/** Move repeat/shuffle between the extras row and the transport side zones. */
@@ -621,7 +696,6 @@ export class StereoView extends ItemView {
 			!this.transportLeft ||
 			!this.transportRight ||
 			!this.extrasRow ||
-			!this.queueButton ||
 			!this.repeatButton ||
 			!this.shuffleButton
 		) return;
@@ -630,9 +704,9 @@ export class StereoView extends ItemView {
 			this.transportRight.appendChild(this.shuffleButton);
 			return;
 		}
-		// Return to the agreed extras order: repeat, shuffle, queue, …
-		this.extrasRow.insertBefore(this.repeatButton, this.queueButton);
-		this.extrasRow.insertBefore(this.shuffleButton, this.queueButton);
+		// applyExtrasOrder() moves both back to their configured slots.
+		this.extrasRow.appendChild(this.repeatButton);
+		this.extrasRow.appendChild(this.shuffleButton);
 	}
 
 	/** Run a library search from the command palette. */
@@ -1027,7 +1101,7 @@ export class StereoView extends ItemView {
 		);
 		this.playlistButton = this.iconButton(
 			extrasRow,
-			"list-music",
+			"list-plus",
 			"Add to playlist",
 			() => {
 				const track = this.plugin.player.getState().track;
@@ -1184,6 +1258,8 @@ export class StereoView extends ItemView {
 			},
 			{ passive: false }
 		);
+
+		this.applyExtrasOrder();
 	}
 
 	private destroyVolumeControl(): void {
@@ -1315,7 +1391,7 @@ export class StereoView extends ItemView {
 		);
 		this.queuePlaylistButton = this.iconButton(
 			actions,
-			"list-music",
+			"list-plus",
 			"Add queue to playlist",
 			() => {
 				void this.library.addToPlaylist(
@@ -1522,7 +1598,7 @@ export class StereoView extends ItemView {
 		const song = queue[index];
 		const menu = new Menu();
 		menu.addItem((item) => {
-			item.setTitle("Move to next").setIcon("list-plus")
+			item.setTitle("Move to next").setIcon("list-end")
 				.setDisabled(!this.plugin.player.canMoveToNext(index)).onClick(() => {
 					if (this.plugin.player.getState().queue === queue) this.plugin.player.moveToNext(index);
 				});

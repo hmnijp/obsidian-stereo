@@ -1024,16 +1024,16 @@ export class StereoView extends ItemView {
 			this.trackCoverPlaceholder.removeClass("stereo-hidden");
 		});
 		this.trackInfoEl = this.trackRowEl.createDiv({ cls: "stereo-track-info" });
-		const titleRow = this.trackInfoEl.createDiv({
-			cls: "stereo-track-title-row",
-		});
-		this.titleEl = titleRow.createDiv({
+		this.titleEl = this.trackInfoEl.createDiv({
 			cls: "stereo-track-title",
 			text: "Nothing playing",
 		});
-		// Inline favorite/rating control, shown when the small cover replaces
-		// the big art (queue/lyrics panels or a visualizer).
-		this.trackHeartContainer = titleRow.createDiv({
+		this.artistEl = this.trackInfoEl.createDiv({ cls: "stereo-track-artist" });
+		this.albumEl = this.trackInfoEl.createDiv({ cls: "stereo-track-album" });
+		// Inline favorite/rating control, shown as the third column of the
+		// track row when the small cover replaces the big art (queue/lyrics
+		// panels or a visualizer).
+		this.trackHeartContainer = this.trackRowEl.createDiv({
 			cls: "stereo-heart-rating stereo-track-heart-rating stereo-hidden",
 		});
 		this.trackFavoriteButton = this.iconButton(
@@ -1058,8 +1058,6 @@ export class StereoView extends ItemView {
 			this.trackFavoriteButton,
 			trackRatingPicker
 		);
-		this.artistEl = this.trackInfoEl.createDiv({ cls: "stereo-track-artist" });
-		this.albumEl = this.trackInfoEl.createDiv({ cls: "stereo-track-album" });
 		this.registerDomEvent(this.artistEl, "click", () => {
 			const track = this.plugin.player.getState().track;
 			if (!track?.artistId) return;

@@ -421,6 +421,24 @@ export class StatusBarPlayer {
 			});
 		}
 
+		const rating = popup.createDiv({
+			cls: "stereo-status-popup-row stereo-status-popup-rating",
+		});
+		this.ratingRow = rating;
+		this.starsEl = rating.createDiv({ cls: "stereo-status-stars" });
+		this.stars = createStarButtons(this.starsEl, (value) =>
+			this.setRating(value)
+		);
+		this.favoriteButton = this.iconButton(
+			rating,
+			"heart",
+			"Add to favorites",
+			() => {
+				void this.toggleFavorite();
+			}
+		);
+		this.favoriteButton.addClass("stereo-heart-button");
+
 		const seekRow = popup.createDiv({
 			cls: "stereo-seek-row stereo-status-seek-row",
 		});
@@ -504,24 +522,6 @@ export class StatusBarPlayer {
 			"Shuffle off",
 			() => this.plugin.player.toggleShuffle()
 		);
-
-		const rating = popup.createDiv({
-			cls: "stereo-status-popup-row stereo-status-popup-rating",
-		});
-		this.ratingRow = rating;
-		this.starsEl = rating.createDiv({ cls: "stereo-status-stars" });
-		this.stars = createStarButtons(this.starsEl, (value) =>
-			this.setRating(value)
-		);
-		this.favoriteButton = this.iconButton(
-			rating,
-			"heart",
-			"Add to favorites",
-			() => {
-				void this.toggleFavorite();
-			}
-		);
-		this.favoriteButton.addClass("stereo-heart-button");
 
 		const extras = popup.createDiv({
 			cls: "stereo-status-popup-row stereo-status-popup-extras",

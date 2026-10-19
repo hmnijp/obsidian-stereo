@@ -694,20 +694,8 @@ body {
 	line-height: var(--line-height-tight);
 }
 
-/* Small-cover mode: the favorite/rating heart sits beside the title, like the
-   mini player's top row. The title stays centred together with the heart. */
-.stereo-track-title-row {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: var(--size-4-1);
-	min-width: 0;
-}
-
-.stereo-track-title-row .stereo-track-title {
-	min-width: 0;
-}
-
+/* Small-cover mode: the favorite/rating heart is the third column of the
+   track row, after the cover and the title/artist/album block. */
 .stereo-button.stereo-track-heart {
 	position: relative;
 	width: 26px;

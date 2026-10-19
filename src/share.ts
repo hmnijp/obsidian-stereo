@@ -1,8 +1,8 @@
 import {
 	App,
 	ButtonComponent,
+	ConfirmationModal,
 	ItemView,
-	Modal,
 	Notice,
 	Setting,
 	type WorkspaceLeaf,
@@ -355,7 +355,7 @@ function activeUsername(plugin: StereoPlugin): string {
 }
 
 /** Create a link for one item or a queue snapshot. */
-export class ShareCreateModal extends Modal {
+export class ShareCreateModal extends ConfirmationModal {
 	private plugin: StereoPlugin;
 	private target: ShareTarget;
 	private expiry: ShareTtlPreset | "custom";
@@ -365,7 +365,6 @@ export class ShareCreateModal extends Modal {
 	private allowDownloads: boolean;
 	private errorEl!: HTMLElement;
 	private createButton: ButtonComponent | null = null;
-	private actionsEl: HTMLElement | null = null;
 	private closed = false;
 
 	constructor(app: App, plugin: StereoPlugin, target: ShareTarget) {
@@ -454,21 +453,20 @@ export class ShareCreateModal extends Modal {
 
 		this.errorEl = this.contentEl.createDiv({ cls: "stereo-share-error" });
 
-		const actions = this.buildActions();
-		new ButtonComponent(actions)
-			.setButtonText("Cancel")
-			.onClick(() => this.close());
-		this.createButton = new ButtonComponent(actions)
-			.setButtonText("Create link")
-			.setCta()
-			.onClick(() => {
-				void this.create();
-			});
+		this.addButton((button) => {
+			this.createButton = button;
+			button
+				.setButtonText("Create link")
+				.setCta()
+				.onClick(() => this.create());
+		});
+		this.addCancelButton("Cancel");
 	}
 
 	onClose(): void {
 		this.closed = true;
 		this.contentEl.empty();
+		super.onClose();
 	}
 
 	private resolveExpiry(): Date | null {
@@ -481,12 +479,13 @@ export class ShareCreateModal extends Modal {
 		return new Date(Date.now() + ttlMs(this.expiry));
 	}
 
-	private async create(): Promise<void> {
-		if (this.closed) return;
+	/** Keeps the modal open, since the created link replaces the form. */
+	private async create(): Promise<boolean> {
+		if (this.closed) return true;
 		const expiresAt = this.resolveExpiry();
 		if (!expiresAt) {
 			this.showError("Choose an expiry date in the future.");
-			return;
+			return true;
 		}
 		this.errorEl.setText("");
 		this.createButton?.setDisabled(true).setButtonText("Creating…");
@@ -497,26 +496,18 @@ export class ShareCreateModal extends Modal {
 				expiresAt,
 				downloadable: this.allowDownloads,
 			});
-			if (this.closed) return;
+			if (this.closed) return true;
 			this.showResult(share, expiresAt);
 		} catch (error) {
-			if (this.closed) return;
+			if (this.closed) return true;
 			this.showError(describeShareError(error));
 			this.createButton?.setDisabled(false).setButtonText("Create link");
 		}
+		return true;
 	}
 
 	private showError(message: string): void {
 		this.errorEl.setText(message);
-	}
-
-	/** Replace the footer, which changes once the link exists. */
-	private buildActions(): HTMLElement {
-		this.actionsEl?.remove();
-		this.actionsEl = this.modalEl.createDiv({
-			cls: "modal-button-container",
-		});
-		return this.actionsEl;
 	}
 
 	private showResult(share: ShareLink, expiresAt: Date): void {
@@ -555,16 +546,18 @@ export class ShareCreateModal extends Modal {
 				})
 		);
 
-		const actions = this.buildActions();
-		new ButtonComponent(actions)
-			.setButtonText("Done")
-			.setCta()
-			.onClick(() => this.close());
+		this.buttonContainerEl.empty();
+		this.addButton((button) =>
+			button
+				.setButtonText("Done")
+				.setCta()
+				.onClick(() => this.close())
+		);
 	}
 }
 
 /** Edit an existing share link. */
-export class ShareEditModal extends Modal {
+export class ShareEditModal extends ConfirmationModal {
 	private plugin: StereoPlugin;
 	private share: ShareLink;
 	private onSaved: () => void;
@@ -639,25 +632,23 @@ export class ShareEditModal extends Modal {
 			});
 
 		this.errorEl = this.contentEl.createDiv({ cls: "stereo-share-error" });
-		const actions = this.modalEl.createDiv({
-			cls: "modal-button-container",
+		this.addButton((button) => {
+			this.saveButton = button;
+			button
+				.setButtonText("Save")
+				.setCta()
+				.onClick(() => this.save());
 		});
-		new ButtonComponent(actions)
-			.setButtonText("Cancel")
-			.onClick(() => this.close());
-		this.saveButton = new ButtonComponent(actions)
-			.setButtonText("Save")
-			.setCta()
-			.onClick(() => {
-				void this.save();
-			});
+		this.addCancelButton("Cancel");
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
+		super.onClose();
 	}
 
-	private async save(): Promise<void> {
+	/** Keeps the modal open while the form is invalid or the request fails. */
+	private async save(): Promise<boolean> {
 		const changes: {
 			description?: string;
 			expiresAt?: Date;
@@ -678,14 +669,14 @@ export class ShareEditModal extends Modal {
 					this.errorEl.setText(
 						"Choose an expiry date in the future, or leave it unchanged."
 					);
-					return;
+					return true;
 				}
 				changes.expiresAt = parsed;
 			} else if (this.initialExpiry.trim()) {
 				this.errorEl.setText(
 					"Navidrome cannot clear an expiry. Choose a new future date."
 				);
-				return;
+				return true;
 			}
 		}
 
@@ -702,7 +693,9 @@ export class ShareEditModal extends Modal {
 		} catch (error) {
 			this.errorEl.setText(describeShareError(error));
 			this.saveButton?.setDisabled(false).setButtonText("Save");
+			return true;
 		}
+		return false;
 	}
 }
 

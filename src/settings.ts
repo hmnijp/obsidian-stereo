@@ -471,11 +471,6 @@ export class StereoSettingTab extends PluginSettingTab {
 						control: { type: "toggle", key: "scrobbleEnabled" },
 					},
 					{
-						name: "Volume control",
-						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
-						control: { type: "toggle", key: "volumeControl" },
-					},
-					{
 						name: "Seek step",
 						desc: "Seconds the elapsed and remaining time labels skip when clicked. The mouse wheel over the seek bar always moves 5 seconds.",
 						render: (setting) =>
@@ -563,6 +558,11 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Open in new window button",
 						desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
 						control: { type: "toggle", key: "showNewWindowButton" },
+					},
+					{
+						name: "Volume control",
+						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
+						control: { type: "toggle", key: "volumeControl" },
 					},
 					{
 						name: "Repeat and shuffle in transport row",

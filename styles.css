@@ -2008,9 +2008,12 @@ body {
 
 .stereo-mini-byline {
 	display: flex;
-	justify-content: center;
+	/* `safe` keeps the byline start-aligned if it ever overflows, instead of
+	   clipping the artist on the left. */
+	justify-content: safe center;
 	gap: 0.35em;
 	min-width: 0;
+	overflow: hidden;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	line-height: var(--line-height-tight);
@@ -2022,6 +2025,14 @@ body {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+/* When the mini bar narrows, only the album gives way: the artist keeps its
+   full width and the separator never shrinks, so the byline reads
+   "Artist - Albu…" instead of truncating both names. */
+.stereo-mini-artist,
+.stereo-mini-sep {
+	flex-shrink: 0;
 }
 
 .stereo-mini-link {

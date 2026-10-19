@@ -1734,7 +1734,7 @@ export class StereoView extends ItemView {
 		this.miniArtistEl = byline.createSpan({ cls: "stereo-mini-artist" });
 		this.miniSepEl = byline.createSpan({
 			cls: "stereo-mini-sep stereo-hidden",
-			text: "—",
+			text: "-",
 		});
 		this.miniAlbumEl = byline.createSpan({ cls: "stereo-mini-album" });
 		this.registerDomEvent(meta, "click", () => {

@@ -1646,7 +1646,7 @@ export class LibraryPane extends Component {
 		);
 		menu.addItem((item) =>
 			item.setTitle("Play next").setIcon("corner-down-right").onClick(() => {
-				this.plugin.player.playNext([song]);
+				void this.plugin.player.playNext([song]);
 			})
 		);
 		menu.addItem((item) =>
@@ -1765,7 +1765,7 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item.setTitle("Play next").setIcon("corner-down-right").onClick(() => {
 				void this.withAlbumSongs(album, (songs) => {
-					this.plugin.player.playNext(songs);
+					void this.plugin.player.playNext(songs);
 				});
 			})
 		);
@@ -1881,7 +1881,7 @@ export class LibraryPane extends Component {
 		menu.addItem((item) =>
 			item.setTitle("Play next").setIcon("corner-down-right").onClick(() => {
 				void this.withPlaylistSongs(playlist, (songs) => {
-					this.plugin.player.playNext(songs);
+					void this.plugin.player.playNext(songs);
 				});
 			})
 		);

@@ -409,9 +409,15 @@ export class PlayerStore {
 		this.persistNow();
 	}
 
-	/** Insert songs immediately after the current track. */
-	playNext(songs: Song[]): void {
+	/** Insert songs immediately after the current track. With nothing loaded
+	 * there is no "after", so they are queued and playback starts on the first
+	 * one - the same thing Add to queue does. */
+	async playNext(songs: Song[]): Promise<void> {
 		if (songs.length === 0) return;
+		if (this.state.index < 0) {
+			await this.addToQueue(songs);
+			return;
+		}
 		this.invalidateUndo();
 		this.shuffleBackup = null;
 		this.randomRequest++;

@@ -927,6 +927,12 @@ export class StereoView extends ItemView {
 		this.registerDomEvent(this.artWrap, "contextmenu", (evt) =>
 			this.showNowPlayingMenu(evt)
 		);
+		// Left-click the cover / visualizer to play-pause. The listener sits on
+		// the stage (the shared square) rather than the wrap, so the corner
+		// rating/favorite overlays — siblings of the stage — never trigger it.
+		this.registerDomEvent(this.artStage, "click", () => {
+			void this.plugin.player.togglePlayPause();
+		});
 		// Base illustrations are bundled into main.js (store installs only
 		// receive main.js/manifest.json/styles.css, never loose plugin-folder
 		// files) and handed over as data URIs.

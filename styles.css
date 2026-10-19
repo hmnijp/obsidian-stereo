@@ -494,6 +494,7 @@ body {
 	position: relative;
 	width: min(100%, var(--stereo-art-size, 340px));
 	aspect-ratio: 1;
+	cursor: pointer;
 }
 
 .stereo-art-stage > .stereo-art,

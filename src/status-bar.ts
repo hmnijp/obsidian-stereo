@@ -363,6 +363,16 @@ export class StatusBarPlayer {
 	}
 
 	private buildPopup(popup: HTMLElement): void {
+		this.queuePanel = popup.createDiv({
+			cls: "stereo-status-queue stereo-hidden",
+			attr: { role: "region", "aria-label": "Queue" },
+		});
+		this.queueList = this.queuePanel.createDiv({
+			cls: "stereo-status-queue-list",
+			attr: { role: "list" },
+		});
+		this.queuePanel.toggleClass("stereo-hidden", !this.queueVisible);
+
 		const header = popup.createDiv({ cls: "stereo-status-header" });
 		const cover = header.createDiv({ cls: "stereo-status-cover" });
 		this.coverImg = cover.createEl("img", {
@@ -512,18 +522,6 @@ export class StatusBarPlayer {
 			}
 		);
 		this.favoriteButton.addClass("stereo-heart-button");
-
-		// The queue list scrolls on its own; keep it below the rating row so
-		// the stars stay visible above the scroll area.
-		this.queuePanel = popup.createDiv({
-			cls: "stereo-status-queue stereo-hidden",
-			attr: { role: "region", "aria-label": "Queue" },
-		});
-		this.queueList = this.queuePanel.createDiv({
-			cls: "stereo-status-queue-list",
-			attr: { role: "list" },
-		});
-		this.queuePanel.toggleClass("stereo-hidden", !this.queueVisible);
 
 		const extras = popup.createDiv({
 			cls: "stereo-status-popup-row stereo-status-popup-extras",

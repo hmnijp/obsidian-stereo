@@ -2352,7 +2352,7 @@ body {
 	flex-direction: column;
 	flex: 0 1 auto;
 	min-height: 0;
-	padding-block: var(--size-2-3);
+	padding-bottom: var(--size-2-2);
 	border-bottom: 1px solid var(--background-modifier-border);
 }
 
@@ -2364,18 +2364,6 @@ body {
 	gap: 2px;
 	max-height: 222px;
 	overflow-y: auto;
-}
-
-/* A slimmer thumb keeps the queue scrollbar quiet inside the small popup. */
-.stereo-status-queue-list::-webkit-scrollbar {
-	width: 8px;
-}
-
-.stereo-status-queue-list::-webkit-scrollbar-thumb {
-	border: 2px solid transparent;
-	border-radius: 999px;
-	background-clip: content-box;
-	background-color: var(--scrollbar-thumb-bg, var(--background-modifier-border));
 }
 
 .stereo-status-queue-scroll {

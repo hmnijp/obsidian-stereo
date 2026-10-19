@@ -694,8 +694,21 @@ body {
 	line-height: var(--line-height-tight);
 }
 
-/* Small-cover mode: the favorite/rating heart is the third column of the
-   track row, after the cover and the title/artist/album block. */
+/* Small-cover mode: the favorite/rating heart is pinned to the right edge of
+   the track row, while the cover stays next to the text. Symmetric padding
+   keeps the cover/text group centred and clear of the heart. */
+.stereo-track-row-heart {
+	position: relative;
+	padding-inline: calc(26px + var(--size-4-1));
+}
+
+.stereo-heart-rating.stereo-track-heart-rating {
+	position: absolute;
+	right: 0;
+	top: 50%;
+	transform: translateY(-50%);
+}
+
 .stereo-button.stereo-track-heart {
 	position: relative;
 	width: 26px;
@@ -2334,7 +2347,8 @@ body {
 	gap: var(--size-4-1);
 	width: min(280px, calc(100vw - 16px));
 	max-height: min(90vh, 720px);
-	overflow-y: auto;
+	/* The queue list owns the only scrollbar; the popup itself never scrolls. */
+	overflow: hidden;
 	padding: var(--size-4-3);
 	box-sizing: border-box;
 	border: 1px solid var(--background-modifier-border);
@@ -2347,6 +2361,10 @@ body {
 }
 
 .stereo-status-queue {
+	display: flex;
+	flex-direction: column;
+	flex: 0 1 auto;
+	min-height: 0;
 	padding-bottom: var(--size-2-2);
 	border-bottom: 1px solid var(--background-modifier-border);
 }
@@ -2354,6 +2372,8 @@ body {
 .stereo-status-queue-list {
 	display: flex;
 	flex-direction: column;
+	flex: 0 1 auto;
+	min-height: 0;
 	gap: 2px;
 	max-height: 222px;
 	overflow-y: auto;

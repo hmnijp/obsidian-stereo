@@ -5,6 +5,7 @@ import { build } from "esbuild";
 const obsidianDouble = `
 	export class App {}
 	export class Modal {}
+	export class ConfirmationModal {}
 	export class ItemView {}
 	export class Setting {}
 	export class FuzzySuggestModal {}

@@ -1,7 +1,7 @@
 import {
 	App,
+	ConfirmationModal,
 	FuzzySuggestModal,
-	Modal,
 	Notice,
 	Setting,
 } from "obsidian";
@@ -22,7 +22,7 @@ interface PlaylistNameOptions {
 }
 
 /** Playlist name prompt: saving the queue, creating, and renaming. */
-export class PlaylistNameModal extends Modal {
+export class PlaylistNameModal extends ConfirmationModal {
 	private onSubmit: (name: string) => void;
 	private name: string;
 	private options: Required<PlaylistNameOptions>;
@@ -44,6 +44,7 @@ export class PlaylistNameModal extends Modal {
 
 	onOpen(): void {
 		this.setTitle(this.options.title);
+		this.modalEl.addClass("mod-narrow");
 
 		new Setting(this.contentEl).setName("Name").addText((text) => {
 			text
@@ -62,24 +63,26 @@ export class PlaylistNameModal extends Modal {
 			text.inputEl.select();
 		});
 
-		new Setting(this.contentEl).addButton((button) =>
+		this.addButton((button) =>
 			button
 				.setButtonText(this.options.cta)
 				.setCta()
-				.onClick(() => {
-					this.submit();
-				})
+				.onClick(() => this.submit())
 		);
+		this.addCancelButton("Cancel");
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
+		super.onClose();
 	}
 
-	private submit(): void {
-		if (!this.name) return;
+	/** Keeps the modal open while the name is empty. */
+	private submit(): boolean {
+		if (!this.name) return true;
 		this.close();
 		this.onSubmit(this.name);
+		return false;
 	}
 }
 
@@ -158,7 +161,7 @@ export interface RadioStationInput {
 }
 
 /** Add/edit form for a server-side radio station. */
-export class RadioStationModal extends Modal {
+export class RadioStationModal extends ConfirmationModal {
 	private onSubmit: (station: RadioStationInput) => void;
 	private values: RadioStationInput;
 	private isEdit: boolean;
@@ -180,6 +183,7 @@ export class RadioStationModal extends Modal {
 
 	onOpen(): void {
 		this.setTitle(this.isEdit ? "Edit radio station" : "Add radio station");
+		this.modalEl.addClass("mod-narrow");
 
 		new Setting(this.contentEl).setName("Name").addText((text) => {
 			text.setValue(this.values.name).onChange((value) => {
@@ -209,34 +213,36 @@ export class RadioStationModal extends Modal {
 				text.inputEl.placeholder = "https://…";
 			});
 
-		new Setting(this.contentEl).addButton((button) =>
+		this.addButton((button) =>
 			button
 				.setButtonText(this.isEdit ? "Save" : "Add")
 				.setCta()
-				.onClick(() => {
-					this.submit();
-				})
+				.onClick(() => this.submit())
 		);
+		this.addCancelButton("Cancel");
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
+		super.onClose();
 	}
 
-	private submit(): void {
-		if (!this.values.name || !this.values.streamUrl) return;
-		if (!/^https?:\/\//i.test(this.values.streamUrl)) return;
+	/** Keeps the modal open while the name or stream URL is invalid. */
+	private submit(): boolean {
+		if (!this.values.name || !this.values.streamUrl) return true;
+		if (!/^https?:\/\//i.test(this.values.streamUrl)) return true;
 		this.close();
 		this.onSubmit({
 			name: this.values.name,
 			streamUrl: this.values.streamUrl,
 			homePageUrl: this.values.homePageUrl || undefined,
 		});
+		return false;
 	}
 }
 
 /** Danger confirm used before destructive server-side actions. */
-export class ConfirmModal extends Modal {
+export class ConfirmModal extends ConfirmationModal {
 	private message: string;
 	private confirmLabel: string;
 	private onConfirm: () => void;
@@ -256,31 +262,29 @@ export class ConfirmModal extends Modal {
 	}
 
 	onOpen(): void {
+		this.modalEl.addClass("mod-narrow");
 		this.contentEl.createEl("p", { text: this.message });
-		new Setting(this.contentEl)
-			.addButton((button) =>
-				button.setButtonText("Cancel").onClick(() => {
+		this.addButton((button) =>
+			button
+				.setButtonText(this.confirmLabel)
+				.setDestructive()
+				.setCta()
+				.onClick(() => {
 					this.close();
+					this.onConfirm();
 				})
-			)
-			.addButton((button) =>
-				button
-					.setButtonText(this.confirmLabel)
-					.setDestructive()
-					.onClick(() => {
-						this.close();
-						this.onConfirm();
-					})
-			);
+		);
+		this.addCancelButton("Cancel");
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
+		super.onClose();
 	}
 }
 
 /** Add or edit one server configuration. */
-export class ServerEditModal extends Modal {
+export class ServerEditModal extends ConfirmationModal {
 	private plugin: StereoPlugin;
 	private values: ServerConfig;
 	private isEdit: boolean;
@@ -312,6 +316,7 @@ export class ServerEditModal extends Modal {
 
 	onOpen(): void {
 		this.setTitle(this.isEdit ? "Edit server" : "Add server");
+		this.modalEl.addClass("mod-narrow");
 
 		new Setting(this.contentEl).setName("Name").addText((text) => {
 			text
@@ -386,30 +391,30 @@ export class ServerEditModal extends Modal {
 					});
 			});
 
-		new Setting(this.contentEl)
-			.addButton((button) =>
-				button.setButtonText("Cancel").onClick(() => this.close())
-			)
-			.addButton((button) =>
-				button
-					.setButtonText(this.isEdit ? "Save" : "Add")
-					.setCta()
-					.onClick(() => this.submit())
-			);
+		this.addButton((button) =>
+			button
+				.setButtonText(this.isEdit ? "Save" : "Add")
+				.setCta()
+				.onClick(() => this.submit())
+		);
+		this.addCancelButton("Cancel");
 	}
 
 	onClose(): void {
 		this.contentEl.empty();
+		super.onClose();
 	}
 
-	private submit(): void {
+	/** Keeps the modal open while the required fields are missing. */
+	private submit(): boolean {
 		if (!this.values.wanUrl) {
 			new Notice("WAN URL is required.");
-			return;
+			return true;
 		}
 		if (!this.values.name) this.values.name = this.values.wanUrl;
 		const server = normalizeServerConfig(this.values);
 		this.close();
 		this.onSubmit(server);
+		return false;
 	}
 }

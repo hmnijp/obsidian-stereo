@@ -762,6 +762,15 @@ body {
 	min-width: 0; /* let the slider shrink instead of overflowing the row */
 }
 
+/* Status popup seek: extra breathing room above/below and a smaller handle. */
+.stereo-status-seek-row {
+	margin-block: var(--size-4-1);
+	--slider-thumb-height: 12px;
+	--slider-thumb-width: 12px;
+	--slider-thumb-y: -3px;
+	--slider-thumb-radius: 12px;
+}
+
 .stereo-time {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);

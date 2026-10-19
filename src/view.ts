@@ -176,6 +176,7 @@ export class StereoView extends ItemView {
 	private miniAlbumEl!: HTMLElement;
 	private miniSepEl!: HTMLElement;
 	private miniElapsedEl!: HTMLElement;
+	private miniRemainingEl!: HTMLElement;
 	private miniSeekSlider!: HTMLInputElement;
 	private miniPreviousButton!: HTMLButtonElement;
 	private miniPlayButton!: HTMLButtonElement;
@@ -1801,11 +1802,15 @@ export class StereoView extends ItemView {
 			type: "range",
 			attr: { min: "0", max: "0", step: "1", "aria-label": "Seek" },
 		});
+		this.miniRemainingEl = bottom.createDiv({
+			cls: "stereo-time stereo-mini-time stereo-mini-remaining",
+			text: "0:00",
+		});
 		this.registerDomEvent(this.miniSeekSlider, "input", () => {
 			this.miniSeeking = true;
-			this.miniElapsedEl.setText(
-				formatTime(Number(this.miniSeekSlider.value))
-			);
+			const position = Number(this.miniSeekSlider.value);
+			this.miniElapsedEl.setText(formatTime(position));
+			this.setMiniRemaining(position, Number(this.miniSeekSlider.max));
 		});
 		this.registerDomEvent(this.miniSeekSlider, "change", () => {
 			this.plugin.player.seek(Number(this.miniSeekSlider.value));
@@ -2009,6 +2014,13 @@ export class StereoView extends ItemView {
 		);
 	}
 
+	/** Same countdown for the mini player's right-hand seek time. */
+	private setMiniRemaining(position: number, duration: number): void {
+		this.miniRemainingEl.setText(
+			duration > 0 ? `-${formatTime(duration - position)}` : "0:00"
+		);
+	}
+
 	private render(state: Readonly<PlayerState>): void {
 		// Radio streams override the chosen view with the radio visualizer; snap
 		// back to the user's choice for library tracks. Re-evaluated here so a
@@ -2131,6 +2143,7 @@ export class StereoView extends ItemView {
 		if (!this.miniSeeking) {
 			this.miniSeekSlider.value = String(Math.floor(state.position));
 			this.miniElapsedEl.setText(formatTime(state.position));
+			this.setMiniRemaining(state.position, state.duration);
 		}
 		setIcon(this.miniPlayButton, state.playing ? "pause" : "play");
 		this.miniPlayButton.toggleClass("stereo-playing", state.playing);

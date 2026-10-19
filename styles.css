@@ -779,6 +779,24 @@ body {
 	height: 34px;
 }
 
+/* Very narrow panes: shrink the central group too, so the side modes keep
+   their share of the row instead of colliding with prev/next. */
+@container (max-width: 160px) {
+	.stereo-transport-main {
+		gap: var(--size-4-1);
+	}
+
+	.stereo-transport-main .stereo-button svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.stereo-transport-main .stereo-play-button svg {
+		width: 28px;
+		height: 28px;
+	}
+}
+
 /* Mode toggles on the transport sides (both players) are secondary controls:
    a smaller glyph and a dimmed idle color keep them from competing with
    prev/play/next. */
@@ -803,9 +821,18 @@ body {
 	opacity: 1;
 }
 
+/* The side buttons shrink with their zone instead of spilling over the
+   central group; the glyph follows the row width down to a legible floor. */
+.stereo-transport-side .stereo-button {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 100%;
+	padding: clamp(1px, 0.8cqw, 2px);
+}
+
 .stereo-transport-side .stereo-button svg {
-	width: 16px;
-	height: 16px;
+	width: clamp(10px, 6cqw, 16px);
+	height: clamp(10px, 6cqw, 16px);
 }
 
 /* Muted state colors: pause is red, play is Navidrome blue. Opacity keeps

@@ -691,7 +691,7 @@ body {
 
 .stereo-track-title {
 	font-weight: var(--font-bold);
-	font-size: var(--font-ui-large);
+	font-size: var(--font-ui-medium);
 	color: var(--text-normal);
 	text-align: center;
 	line-height: var(--line-height-tight);

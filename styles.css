@@ -779,6 +779,35 @@ body {
 	height: 34px;
 }
 
+/* Mode toggles on the transport sides (both players) are secondary controls:
+   a smaller glyph and a dimmed idle color keep them from competing with
+   prev/play/next. */
+.stereo-transport-side .stereo-button,
+.stereo-status-transport-side .stereo-button {
+	color: var(--text-muted);
+	opacity: 0.7;
+	transition: color 120ms ease, opacity 120ms ease;
+}
+
+.stereo-transport-side .stereo-button:hover,
+.stereo-transport-side .stereo-button:focus-visible,
+.stereo-status-transport-side .stereo-button:hover,
+.stereo-status-transport-side .stereo-button:focus-visible {
+	color: var(--text-normal);
+	opacity: 1;
+}
+
+.stereo-transport-side .stereo-button.stereo-button-active,
+.stereo-status-transport-side .stereo-button.stereo-button-active {
+	color: var(--interactive-accent);
+	opacity: 1;
+}
+
+.stereo-transport-side .stereo-button svg {
+	width: 16px;
+	height: 16px;
+}
+
 /* Muted state colors: pause is red, play is Navidrome blue. Opacity keeps
    them calm in both light and dark themes without dimming the button chrome. */
 .stereo-play-toggle:not(:disabled) svg {
@@ -2443,6 +2472,12 @@ body {
 .stereo-status-popup-transport .stereo-play-toggle svg {
 	width: 24px;
 	height: 24px;
+}
+
+/* Same secondary treatment for repeat/shuffle beside prev/play/next. */
+.stereo-status-transport-side .stereo-button svg {
+	width: 15px;
+	height: 15px;
 }
 
 .stereo-status-popup-rating {

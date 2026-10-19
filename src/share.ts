@@ -754,7 +754,7 @@ export class SharesView extends ItemView {
 		);
 
 		this.statusEl = group.createDiv({ cls: "stereo-share-status" });
-		this.listEl = group.createDiv({ cls: "stereo-share-list" });
+		this.listEl = group.createDiv({ cls: "setting-items" });
 		await this.refresh();
 	}
 

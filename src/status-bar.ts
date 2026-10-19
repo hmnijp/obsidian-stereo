@@ -267,7 +267,8 @@ export class StatusBarPlayer {
 
 	// --- popup ---
 
-	private togglePopup(): void {
+	/** Open or close the mini player; also the target of the Obsidian command. */
+	togglePopup(): void {
 		if (this.popup) {
 			this.closePopup();
 			return;

@@ -2565,6 +2565,7 @@ body {
 
 .stereo-status-popup-transport {
 	gap: var(--size-4-1);
+	padding-block: var(--size-4-1);
 }
 
 .stereo-status-transport-side {
@@ -2590,13 +2591,13 @@ body {
 }
 
 .stereo-status-popup-transport .stereo-button svg {
-	width: 18px;
-	height: 18px;
+	width: 22px;
+	height: 22px;
 }
 
 .stereo-status-popup-transport .stereo-play-toggle svg {
-	width: 24px;
-	height: 24px;
+	width: 30px;
+	height: 30px;
 }
 
 /* Same secondary treatment for repeat/shuffle beside prev/play/next. */

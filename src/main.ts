@@ -167,6 +167,14 @@ export default class StereoPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "show-status-bar-player",
+			name: "Show status bar player",
+			callback: () => {
+				this.statusBar?.togglePopup();
+			},
+		});
+
+		this.addCommand({
 			id: "open-current-album-in-navidrome",
 			name: "Open current album in Navidrome",
 			callback: () => {

@@ -68,6 +68,23 @@ export type LyricsAlign = "left" | "center" | "right";
 /** Lifetime presets for newly created share links. */
 export type ShareTtlPreset = "1h" | "24h" | "7d" | "30d" | "1y";
 
+/** Background painted behind a Stereo pane. */
+export type PaneBackground = "theme" | "secondary" | "primary" | "custom";
+
+/**
+ * The custom colour is a plain hex string because the native colour picker
+ * only speaks `#rrggbb`.
+ */
+export const PANE_BACKGROUNDS: {
+	value: PaneBackground;
+	label: string;
+}[] = [
+	{ value: "theme", label: "Follow the theme" },
+	{ value: "secondary", label: "Sidebar colour" },
+	{ value: "primary", label: "Main area colour" },
+	{ value: "custom", label: "Custom colour" },
+];
+
 export const SHARE_TTL_PRESETS: ReadonlyArray<{
 	value: ShareTtlPreset;
 	label: string;
@@ -168,6 +185,13 @@ export interface StereoSettings {
 	showStatusBarServers: boolean;
 	/** Scale of the status-bar mini player, in percent. */
 	statusBarScale: number;
+	/**
+	 * Background behind a Stereo pane. `theme` leaves Obsidian's own colour in
+	 * place; the other modes paint a fixed one.
+	 */
+	paneBackground: PaneBackground;
+	/** Hex colour used when `paneBackground` is `custom`. */
+	paneBackgroundCustom: string;
 	/** Persisted open state of the status-bar mini-player queue. */
 	statusBarQueueOpen: boolean;
 	/** Persisted open state of the status-bar mini-player lyrics. */
@@ -238,6 +262,8 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showStatusBarTransport: false,
 	showStatusBarServers: true,
 	statusBarScale: 100,
+	paneBackground: "theme",
+	paneBackgroundCustom: "#1e1e1e",
 	statusBarQueueOpen: false,
 	statusBarLyricsOpen: false,
 	statusBarExtraRows: 7,
@@ -644,6 +670,34 @@ export class StereoSettingTab extends PluginSettingTab {
 			},
 			{
 				type: "group",
+				heading: "Appearance",
+				items: [
+					{
+						name: "Pane background",
+						desc: "Colour behind the Stereo pane. Follow the theme keeps whatever Obsidian paints there, which depends on where the pane sits. The status-bar mini player always uses the sidebar colour.",
+						control: {
+							type: "dropdown",
+							key: "paneBackground",
+							options: Object.fromEntries(
+								PANE_BACKGROUNDS.map((opt) => [opt.value, opt.label])
+							),
+						},
+					},
+					{
+						name: "Custom pane background",
+						desc: "Used when the pane background is set to Custom colour.",
+						visible: () =>
+							this.plugin.settings.paneBackground === "custom",
+						control: {
+							type: "color",
+							key: "paneBackgroundCustom",
+							defaultValue: DEFAULT_SETTINGS.paneBackgroundCustom,
+						},
+					},
+				],
+			},
+			{
+				type: "group",
 				heading: "Ratings",
 				items: [
 					{
@@ -811,6 +865,9 @@ export class StereoSettingTab extends PluginSettingTab {
 		if (key === "volumeControl") this.plugin.applyVolumeControlSetting();
 		if (key === "sharingEnabled") this.plugin.syncShareUi();
 		if (key === "highlightExternal") this.plugin.applyExternalHighlightSetting();
+		if (key === "paneBackground" || key === "paneBackgroundCustom") {
+			this.plugin.applyPaneBackgroundSetting();
+		}
 		if (key === "lyricsAlign" || key === "lyricsFontSize") {
 			this.applyLyricsPreview?.();
 		}

@@ -138,6 +138,16 @@ export default class StereoPlugin extends Plugin {
 		});
 		this.player.history.setPersistence(() => { void this.saveAll(); });
 		this.applyVolumeControlSetting();
+		// Switching theme, snippet, or light/dark reloads the stylesheets, so a
+		// pane colour resolved out of them has to be read again.
+		const workspace = this.app.workspace;
+		if (workspace) {
+			this.registerEvent(
+				workspace.on("css-change", () => {
+					this.applyPaneBackgroundSetting();
+				})
+			);
+		}
 
 		this.registerView(STEREO_VIEW_TYPE, (leaf) => new StereoView(leaf, this));
 		this.registerView(SHARES_VIEW_TYPE, (leaf) => new SharesView(leaf, this));
@@ -356,6 +366,16 @@ export default class StereoPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) {
 				leaf.view.applyExternalHighlightSetting();
+			}
+		}
+	}
+
+	/** Repaint every open player after the pane-background setting or the
+	 * active theme changed. */
+	applyPaneBackgroundSetting(): void {
+		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
+			if (leaf.view instanceof StereoView) {
+				leaf.view.applyPaneBackgroundSetting();
 			}
 		}
 	}

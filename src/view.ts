@@ -36,6 +36,7 @@ import type StereoPlugin from "./main";
 import { WHEEL_SEEK_SECONDS, type PlayerState } from "./player";
 import { NOW_PLAYING_VIEWS, type NowPlayingView } from "./settings";
 import type { Song } from "./subsonic";
+import { resolveThemeColor } from "./theme";
 
 export const STEREO_VIEW_TYPE = "stereo-player";
 
@@ -302,6 +303,7 @@ export class StereoView extends ItemView {
 		this.setActiveTab("nowPlaying");
 		this.applyNowPlayingView();
 		this.applyExternalHighlightSetting();
+		this.applyPaneBackgroundSetting();
 		this.syncShareUi();
 		this.register(
 			this.plugin.favorites.subscribe(() => {
@@ -552,6 +554,33 @@ export class StereoView extends ItemView {
 			"stereo-hide-external-marks",
 			!this.plugin.settings.highlightExternal
 		);
+	}
+
+	/**
+	 * Paint the pane background, or step out of the way when the theme's own
+	 * colour is wanted. The colour is resolved on this pane's document — so a
+	 * popout window follows its own theme — and lands as a literal value on the
+	 * pane element, because a theme may redefine the variable inside a sidebar.
+	 */
+	applyPaneBackgroundSetting(): void {
+		const mode = this.plugin.settings.paneBackground;
+		const color =
+			mode === "custom"
+				? this.plugin.settings.paneBackgroundCustom
+				: mode === "theme"
+					? ""
+					: resolveThemeColor(
+							mode === "secondary"
+								? "--background-secondary"
+								: "--background-primary",
+							this.contentEl.doc
+						);
+		this.contentEl.toggleClass("stereo-pane-surface", color !== "");
+		if (color === "") {
+			this.contentEl.style.removeProperty("--stereo-pane-background");
+		} else {
+			this.contentEl.style.setProperty("--stereo-pane-background", color);
+		}
 	}
 
 	/** Show or hide share controls after the settings toggle changes. */

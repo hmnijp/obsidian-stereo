@@ -976,6 +976,9 @@ export default class StereoPlugin extends Plugin {
 		// A server URL or username saved mid-edit still carries the previous
 		// account's queue; the history snapshot names the account it belongs to.
 		// Data from before history support has no snapshot and keeps its queue.
+		// With "keep across servers" the saved state is restored either way, and
+		// the entries keep the account they were played under.
+		const keepPlayback = this.settings.keepPlaybackAcrossServers === true;
 		const historyRaw = raw.history as
 			| { connection?: unknown; entries?: unknown }
 			| undefined;
@@ -983,7 +986,7 @@ export default class StereoPlugin extends Plugin {
 		const sameAccount =
 			savedConnection === connection || savedConnection === legacyConnection;
 		this.playerState =
-			savedConnection === undefined || sameAccount
+			savedConnection === undefined || sameAccount || keepPlayback
 				? raw.playerState
 				: undefined;
 		const historySnapshot =

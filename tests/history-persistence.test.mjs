@@ -313,6 +313,22 @@ test("reloading an uncommitted account edit drops the old queue; legacy and same
 	assert.deepEqual(same.player.getState().queue, [song]);
 });
 
+test("keeping playback across servers restores the other account's history and queue", async (t) => {
+	const plugin = await setup(t, { settings });
+	await plugin.player.playTrack(song);
+	const first = plugin.player.history.getEntries()[0]?.connection;
+	activeServer(plugin).username = "someone-else";
+	await plugin.saveSettings();
+	const saved = plugin.writes.at(-1);
+	const kept = await setup(t, {
+		...saved,
+		settings: { ...saved.settings, keepPlaybackAcrossServers: true },
+	});
+	assert.equal(kept.player.history.getEntries().length, 1);
+	assert.equal(kept.player.history.getEntries()[0].connection, first);
+	assert.deepEqual(kept.player.getState().queue, [song]);
+});
+
 test("unload flushes the latest paused position and cancels delayed saves", async (t) => {
 	const plugin = await setup(t, { settings });
 	await plugin.player.playTrack(song);

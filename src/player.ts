@@ -154,6 +154,9 @@ export class PlayerStore {
 	constructor(client: SubsonicClient, getSettings: () => StereoSettings) {
 		this.client = client;
 		this.getSettings = getSettings;
+		this.history.setKeepSource(
+			() => getSettings().keepPlaybackAcrossServers === true
+		);
 		this.history.restore(undefined, historyConnection(getSettings()));
 		this.audio = new Audio();
 		this.audio.preload = "auto";
@@ -186,6 +189,9 @@ export class PlayerStore {
 	syncConnection(): void {
 		if (!this.history.changeConnection(historyConnection(this.getSettings()))) return;
 		this.historyRecorded = true;
+		// With "keep across servers" on, the previous account's history and queue
+		// stay: their tracks are marked unavailable instead of being dropped.
+		if (this.getSettings().keepPlaybackAcrossServers) return;
 		this.invalidateUndo();
 		this.emptyQueue();
 	}

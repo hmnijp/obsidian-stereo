@@ -254,6 +254,38 @@ test("connection changes clear history and old queue IDs; passwords and appearan
 	assert.equal(store.history.getEntries().length, 0);
 });
 
+test("keeping playback across servers retains history, queue and undo", async (t) => {
+	const settings = { serverUrl: "https://one.invalid", username: "first", keepPlaybackAcrossServers: true };
+	const { store } = setup(t, settings);
+	await store.playTrack(a);
+	await store.playTrack(b);
+	const first = store.history.getEntries()[0];
+	settings.username = "second";
+	store.syncConnection();
+	assert.equal(store.history.getEntries().length, 2);
+	assert.deepEqual(store.getState().queue, [b]);
+	assert.equal(store.getState().canUndo, true);
+	assert.equal(store.history.getEntries()[0].connection, first.connection);
+	// Plays from the new account join the same list, tagged with its own key.
+	await store.playTrack(c);
+	const entries = store.history.getEntries();
+	assert.equal(entries.length, 3);
+	assert.notEqual(entries[0].connection, first.connection);
+	assert.equal(entries.at(-1).connection, first.connection);
+	// A snapshot written by the other account is accepted while the setting is on.
+	store.history.restore(
+		{ connection: first.connection, entries: [{ song: a, playedAt: 1 }] },
+		store.history.getConnection()
+	);
+	assert.deepEqual(store.history.getEntries().map((entry) => entry.song.id), ["a"]);
+	// Turning the setting off restores the old, per-account behaviour.
+	settings.keepPlaybackAcrossServers = false;
+	settings.username = "third";
+	store.syncConnection();
+	assert.deepEqual(store.history.getEntries(), []);
+	assert.deepEqual(store.getState().queue, []);
+});
+
 test("late playing events from the previous account never enter the new history", async (t) => {
 	const settings = { username: "first" };
 	const { store, audio } = setup(t, settings);

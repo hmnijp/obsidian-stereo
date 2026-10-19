@@ -9,6 +9,8 @@ export const HISTORY_LIMIT = 1000;
 export interface HistoryEntry {
 	song: Song;
 	playedAt: number;
+	/** Account the play came from; absent on data saved before multi-server history. */
+	connection?: string;
 }
 
 export interface HistorySnapshot {
@@ -75,24 +77,40 @@ export class HistoryStore {
 	private entries: readonly HistoryEntry[] = [];
 	private listeners = new Set<() => void>();
 	private persist: ((snapshot: HistorySnapshot) => void) | null = null;
+	/** Read at save/restore time: the setting can change while the player runs. */
+	private getKeep: () => boolean = () => false;
 
 	getEntries(): readonly HistoryEntry[] { return this.entries; }
 	getConnection(): string { return this.connection; }
 	getSnapshot(): HistorySnapshot { return { connection: this.connection, entries: this.entries }; }
+
+	/** Wire the "keep history across servers" setting. */
+	setKeepSource(getKeep: () => boolean): void { this.getKeep = getKeep; }
 
 	restore(raw: unknown, connection: string): void {
 		this.connection = connection;
 		this.entries = [];
 		if (!raw || typeof raw !== "object") return;
 		const snapshot = raw as Record<string, unknown>;
-		if (snapshot.connection !== connection || !Array.isArray(snapshot.entries)) return;
+		if (!Array.isArray(snapshot.entries)) return;
+		// Entries saved before multi-server history carry no tag: they belong to
+		// the account the snapshot was written for.
+		const savedConnection =
+			typeof snapshot.connection === "string" ? snapshot.connection : connection;
+		if (savedConnection !== connection && !this.getKeep()) return;
 		const entries: HistoryEntry[] = [];
 		for (const rawEntry of snapshot.entries) {
 			if (!rawEntry || typeof rawEntry !== "object") continue;
 			const entry = rawEntry as Record<string, unknown>;
 			const song = metadata(entry.song);
 			if (song && typeof entry.playedAt === "number" && entry.playedAt > 0 && entry.playedAt <= 8.64e15) {
-				entries.push({ song, playedAt: entry.playedAt });
+				entries.push({
+					song,
+					playedAt: entry.playedAt,
+					connection: typeof entry.connection === "string"
+						? entry.connection
+						: savedConnection,
+				});
 			}
 		}
 		this.entries = entries.sort((a, b) => b.playedAt - a.playedAt).slice(0, HISTORY_LIMIT);
@@ -107,15 +125,19 @@ export class HistoryStore {
 	changeConnection(connection: string): boolean {
 		if (connection === this.connection) return false;
 		this.connection = connection;
-		this.clear();
+		if (!this.getKeep()) this.clear();
 		return true;
 	}
 
 	record(track: Song, connection: string): void {
-		if (connection !== this.connection) return;
+		if (!this.getKeep() && connection !== this.connection) return;
 		const song = metadata(track);
 		if (!song) return;
-		this.entries = [{ song, playedAt: Date.now() }, ...this.entries].slice(0, HISTORY_LIMIT);
+		const from = connection || this.connection;
+		this.entries = [
+			{ song, playedAt: Date.now(), connection: from },
+			...this.entries,
+		].slice(0, HISTORY_LIMIT);
 		this.changed();
 	}
 

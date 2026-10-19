@@ -137,6 +137,7 @@ export class StereoView extends ItemView {
 	private trackShareButton!: HTMLButtonElement;
 	private navidromeButton!: HTMLButtonElement;
 	private downloadButton!: HTMLButtonElement;
+	private newWindowButton!: HTMLButtonElement;
 	private errorEl!: HTMLElement;
 
 	// Lyrics panel (swaps in for the art area while toggled on)
@@ -611,6 +612,10 @@ export class StereoView extends ItemView {
 		this.downloadButton?.toggleClass(
 			"stereo-hidden",
 			!settings.showDownloadButton
+		);
+		this.newWindowButton?.toggleClass(
+			"stereo-hidden",
+			!settings.showNewWindowButton
 		);
 	}
 
@@ -1145,8 +1150,8 @@ export class StereoView extends ItemView {
 		});
 
 		// Extras row order: repeat · shuffle · queue · lyrics · station ·
-		// random · playlist · share · Navidrome · download · rating · favorite ·
-		// volume.
+		// random · playlist · share · Navidrome · download · window · rating ·
+		// favorite · volume.
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
 		this.repeatButton = this.iconButton(extrasRow, "repeat", "Repeat off", () => {
@@ -1241,6 +1246,16 @@ export class StereoView extends ItemView {
 			() => {
 				const track = this.plugin.player.getState().track;
 				if (track) void this.plugin.downloadTrack(track);
+			}
+		);
+		// Opens a second Stereo pane in a desktop popout window. The matching
+		// status-bar button is intentionally independent of this setting.
+		this.newWindowButton = this.iconButton(
+			extrasRow,
+			"monitor",
+			"Open player in new window",
+			() => {
+				void this.plugin.openPlayerInWindow();
 			}
 		);
 

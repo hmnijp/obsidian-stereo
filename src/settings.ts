@@ -154,6 +154,8 @@ export interface StereoSettings {
 	showNavidromeButton: boolean;
 	/** Show the button that downloads the current track to the clipboard. */
 	showDownloadButton: boolean;
+	/** Show the button that opens the player in a separate desktop window. */
+	showNewWindowButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
 	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
@@ -223,6 +225,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showShareButton: true,
 	showNavidromeButton: true,
 	showDownloadButton: true,
+	showNewWindowButton: true,
 	repeatShuffleInTransport: false,
 	restoreOpenViews: true,
 	showStatusBarPlayer: true,
@@ -358,6 +361,7 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showShareButton",
 	"showNavidromeButton",
 	"showDownloadButton",
+	"showNewWindowButton",
 	"repeatShuffleInTransport",
 	"showRating",
 	"showArtOverlays",
@@ -554,6 +558,11 @@ export class StereoSettingTab extends PluginSettingTab {
 						name: "Download button",
 						desc: "Show the button that downloads the current track and copies the file to the clipboard. Requires server downloads.",
 						control: { type: "toggle", key: "showDownloadButton" },
+					},
+					{
+						name: "Open in new window button",
+						desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
+						control: { type: "toggle", key: "showNewWindowButton" },
 					},
 					{
 						name: "Repeat and shuffle in transport row",

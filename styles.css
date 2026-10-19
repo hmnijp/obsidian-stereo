@@ -2711,7 +2711,7 @@ body {
 .stereo-status-servers-heading {
 	padding: 0 2px var(--size-2-1);
 	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
+	font-size: calc(var(--font-ui-smaller) / 2);
 	letter-spacing: 0.04em;
 	text-transform: uppercase;
 }
@@ -2727,11 +2727,12 @@ body {
 .stereo-status-server-row {
 	display: flex;
 	align-items: center;
-	gap: var(--size-4-2);
-	padding: 3px 6px;
+	gap: calc(var(--size-4-2) / 1.5);
+	padding: 2px 4px;
 	border-radius: var(--radius-s);
 	cursor: pointer;
 	color: var(--text-normal);
+	font-size: calc(1em / 1.5);
 }
 
 .stereo-status-server-row:hover {
@@ -2745,8 +2746,8 @@ body {
 
 .stereo-status-server-dot {
 	flex: 0 0 auto;
-	width: 7px;
-	height: 7px;
+	width: calc(7px / 1.5);
+	height: calc(7px / 1.5);
 	border-radius: 50%;
 	background: currentColor;
 	opacity: 0.7;

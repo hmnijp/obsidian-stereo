@@ -354,6 +354,15 @@ const FONT_SUGGESTIONS = [
 
 type ConnectionState = "untested" | "testing" | "ok" | "error";
 
+/** Native-control keys whose change restyles or repaints the status-bar player. */
+const STATUS_BAR_KEYS = new Set<string>([
+	"showStatusBarPlayer",
+	"showStatusBarTransport",
+	"showStatusBarServers",
+	"statusBarScale",
+	"statusBarExtraRows",
+]);
+
 /** Native-control keys whose change must repaint open Now Playing views. */
 const VIEW_REFRESH_KEYS = new Set<string>([
 	"nowPlayingView",
@@ -385,6 +394,9 @@ export class StereoSettingTab extends PluginSettingTab {
 	private statusEl: HTMLElement | null = null;
 	/** Set while the lyrics preview row is mounted; restyles it in place. */
 	private applyLyricsPreview: (() => void) | null = null;
+	/** Keys changed since the last debounced commit; a slider drag adds many. */
+	private pendingKeys = new Set<string>();
+	private commitTimer: number | null = null;
 
 	constructor(app: App, plugin: StereoPlugin) {
 		super(app, plugin);
@@ -423,20 +435,15 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Track click action",
 						desc: "What clicking a track does. Right-click always offers every action.",
-						render: (setting) =>
-							this.segmented(
-								setting,
-								[
-									{ value: "play", label: "Play" },
-									{ value: "addToQueue", label: "Queue" },
-									{ value: "none", label: "Nothing" },
-								],
-								() => this.plugin.settings.trackClickAction,
-								async (value) => {
-									this.plugin.settings.trackClickAction = value;
-									await this.plugin.saveSettings();
-								}
-							),
+						control: {
+							type: "dropdown",
+							key: "trackClickAction",
+							options: {
+								play: "Play",
+								addToQueue: "Queue",
+								none: "Nothing",
+							},
+						},
 					},
 				],
 			},
@@ -482,30 +489,25 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Seek step",
 						desc: "Seconds the elapsed and remaining time labels skip when clicked. The mouse wheel over the seek bar always moves 5 seconds.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 1, max: 60, step: 1 },
-								() => this.plugin.settings.seekStep,
-								async (value) => {
-									this.plugin.settings.seekStep = value;
-									await this.plugin.saveSettings();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "seekStep",
+							min: 1,
+							max: 60,
+							step: 1,
+							displayFormat: (value) => `${value}s`,
+						},
 					},
 					{
 						name: "Station batch size",
 						desc: "Tracks added per station batch, including each More press.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 10, max: 50, step: 5 },
-								() => this.plugin.settings.stationBatchSize,
-								async (value) => {
-									this.plugin.settings.stationBatchSize = value;
-									await this.plugin.saveSettings();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "stationBatchSize",
+							min: 10,
+							max: 50,
+							step: 5,
+						},
 					},
 				],
 			},
@@ -618,32 +620,25 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Status bar player scale",
 						desc: "Scale the status-bar mini player and all of its content. 100% is the default.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 50, max: 200, step: 5 },
-								() => this.plugin.settings.statusBarScale,
-								async (value) => {
-									this.plugin.settings.statusBarScale = value;
-									await this.plugin.saveSettings();
-									this.plugin.applyStatusBarSetting();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "statusBarScale",
+							min: 50,
+							max: 200,
+							step: 5,
+							displayFormat: (value) => `${value}%`,
+						},
 					},
 					{
 						name: "Queue and lyrics rows",
 						desc: "How many rows the status-bar queue and lyrics show before scrolling. The mini player grows upward by this many rows.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 3, max: 20, step: 1 },
-								() => this.plugin.settings.statusBarExtraRows,
-								async (value) => {
-									this.plugin.settings.statusBarExtraRows = value;
-									await this.plugin.saveSettings();
-									this.plugin.applyStatusBarSetting();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "statusBarExtraRows",
+							min: 3,
+							max: 20,
+							step: 1,
+						},
 					},
 				],
 			},
@@ -713,18 +708,15 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Font size",
 						desc: "Size of the lyrics text, in pixels. Used when auto-adjust is off.",
-						render: (setting) =>
-							this.stepper(
-								setting,
-								{ min: 12, max: 28, step: 1 },
-								() => this.plugin.settings.lyricsFontSize,
-								async (value) => {
-									this.plugin.settings.lyricsFontSize = value;
-									await this.plugin.saveSettings();
-									this.plugin.refreshNowPlayingViews();
-									this.applyLyricsPreview?.();
-								}
-							),
+						control: {
+							type: "slider",
+							key: "lyricsFontSize",
+							min: 12,
+							max: 28,
+							step: 1,
+							displayFormat: (value) => `${value} px`,
+							disabled: () => this.plugin.settings.lyricsAutoSize,
+						},
 					},
 					{
 						name: "Font",
@@ -770,17 +762,35 @@ export class StereoSettingTab extends PluginSettingTab {
 					{
 						name: "Artists",
 						desc: "Search results shown for this group.",
-						render: (setting) => this.countStepper(setting, "searchArtistCount"),
+						control: {
+							type: "slider",
+							key: "searchArtistCount",
+							min: 1,
+							max: 20,
+							step: 1,
+						},
 					},
 					{
 						name: "Albums",
 						desc: "Search results shown for this group.",
-						render: (setting) => this.countStepper(setting, "searchAlbumCount"),
+						control: {
+							type: "slider",
+							key: "searchAlbumCount",
+							min: 1,
+							max: 20,
+							step: 1,
+						},
 					},
 					{
 						name: "Tracks",
 						desc: "Search results shown for this group.",
-						render: (setting) => this.countStepper(setting, "searchSongCount"),
+						control: {
+							type: "slider",
+							key: "searchSongCount",
+							min: 1,
+							max: 20,
+							step: 1,
+						},
 					},
 				],
 			},
@@ -798,19 +808,39 @@ export class StereoSettingTab extends PluginSettingTab {
 	async setControlValue(key: string, value: unknown): Promise<void> {
 		if (key === "searchDebounceMs") value = Number(value);
 		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
-		await this.plugin.saveSettings();
 		if (key === "volumeControl") this.plugin.applyVolumeControlSetting();
-		if (
-			key === "showStatusBarPlayer" ||
-			key === "showStatusBarTransport" ||
-			key === "showStatusBarServers"
-		) {
-			this.plugin.applyStatusBarSetting();
-		}
 		if (key === "sharingEnabled") this.plugin.syncShareUi();
 		if (key === "highlightExternal") this.plugin.applyExternalHighlightSetting();
-		if (VIEW_REFRESH_KEYS.has(key)) this.plugin.refreshNowPlayingViews();
-		if (key === "lyricsAlign") this.applyLyricsPreview?.();
+		if (key === "lyricsAlign" || key === "lyricsFontSize") {
+			this.applyLyricsPreview?.();
+		}
+		this.scheduleCommit(key);
+	}
+
+	/**
+	 * A slider fires on every step of a drag, so persisting and repainting wait
+	 * until the drag pauses instead of running dozens of times per second.
+	 */
+	private scheduleCommit(key: string): void {
+		this.pendingKeys.add(key);
+		if (this.commitTimer !== null) window.clearTimeout(this.commitTimer);
+		this.commitTimer = window.setTimeout(() => {
+			this.commitTimer = null;
+			const keys = [...this.pendingKeys];
+			this.pendingKeys.clear();
+			if (keys.some((pending) => STATUS_BAR_KEYS.has(pending))) {
+				this.plugin.applyStatusBarSetting();
+			}
+			if (
+				keys.some(
+					(pending) =>
+						VIEW_REFRESH_KEYS.has(pending) || pending === "lyricsFontSize"
+				)
+			) {
+				this.plugin.refreshNowPlayingViews();
+			}
+			void this.plugin.saveSettings();
+		}, 150);
 	}
 
 	// ------------------------------------------------------------------
@@ -1057,94 +1087,6 @@ export class StereoSettingTab extends PluginSettingTab {
 		return () => {
 			if (this.applyLyricsPreview === apply) this.applyLyricsPreview = null;
 		};
-	}
-
-	// ------------------------------------------------------------------
-	// Search
-
-	private countStepper(
-		setting: Setting,
-		key: "searchArtistCount" | "searchAlbumCount" | "searchSongCount"
-	): void {
-		this.stepper(
-			setting,
-			{ min: 1, max: 20, step: 1 },
-			() => this.plugin.settings[key],
-			async (value) => {
-				this.plugin.settings[key] = value;
-				await this.plugin.saveSettings();
-			}
-		);
-	}
-
-	// ------------------------------------------------------------------
-	// Controls
-
-	/** Connected buttons showing every choice at once; one is always active. */
-	private segmented<T extends string>(
-		setting: Setting,
-		options: ReadonlyArray<{ value: T; label: string }>,
-		get: () => T,
-		set: (value: T) => Promise<void>
-	): void {
-		const group = setting.controlEl.createDiv({ cls: "stereo-segmented" });
-		const buttons = new Map<T, HTMLButtonElement>();
-		const refresh = (): void => {
-			const active = get();
-			for (const [value, button] of buttons) {
-				button.toggleClass("stereo-segmented-active", value === active);
-			}
-		};
-		for (const { value, label } of options) {
-			const button = group.createEl("button", {
-				cls: "stereo-segmented-option",
-				text: label,
-			});
-			button.addEventListener("click", () => {
-				void set(value).then(refresh);
-			});
-			buttons.set(value, button);
-		}
-		refresh();
-	}
-
-	/** Number field with −/+ buttons; typed values are clamped to the range. */
-	private stepper(
-		setting: Setting,
-		range: { min: number; max: number; step: number },
-		get: () => number,
-		set: (value: number) => Promise<void>
-	): void {
-		const group = setting.controlEl.createDiv({ cls: "stereo-stepper" });
-
-		const minus = group.createEl("button", { cls: "stereo-stepper-button" });
-		setIcon(minus, "minus");
-		const input = group.createEl("input", {
-			cls: "stereo-stepper-input",
-			attr: { type: "number", min: range.min, max: range.max },
-		});
-		input.value = String(get());
-		const plus = group.createEl("button", { cls: "stereo-stepper-button" });
-		setIcon(plus, "plus");
-
-		const apply = (raw: number): void => {
-			const value = Math.min(
-				range.max,
-				Math.max(range.min, Math.round(raw / range.step) * range.step)
-			);
-			input.value = String(value);
-			minus.disabled = value <= range.min;
-			plus.disabled = value >= range.max;
-			if (value !== get()) void set(value);
-		};
-
-		minus.addEventListener("click", () => apply(get() - range.step));
-		plus.addEventListener("click", () => apply(get() + range.step));
-		input.addEventListener("change", () => {
-			const raw = Number(input.value);
-			apply(Number.isFinite(raw) ? raw : get());
-		});
-		apply(get());
 	}
 }
 

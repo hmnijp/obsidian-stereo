@@ -1736,6 +1736,16 @@ body {
 	background: var(--background-modifier-hover);
 }
 
+/* The playing track: accent title, quiet hover background. */
+.stereo-list-row-current {
+	background: var(--background-modifier-hover);
+}
+
+.stereo-list-row-current .stereo-list-row-title {
+	color: var(--interactive-accent);
+	font-weight: var(--font-semibold);
+}
+
 .stereo-list-row-icon {
 	display: flex;
 	color: var(--text-muted);

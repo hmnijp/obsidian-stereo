@@ -251,6 +251,13 @@ export class LibraryPane extends Component {
 	private scrubEl: HTMLElement | null = null;
 	private activeSubTab: SubTab = "albums";
 	private stack: Page[] = [{ kind: "root" }];
+	/** Row currently marked as the playing song (kept across re-renders). */
+	private highlightedSongId: string | null = null;
+	private highlightedRow: HTMLElement | null = null;
+	/** False after a list rebuild, so the next sync rescans the new rows. */
+	private highlightScanned = false;
+	/** Set by an external album jump so the playing row is brought into view. */
+	private pendingScrollToCurrent = false;
 	/** Bumped per render; async loaders bail if a newer render started. */
 	private loadToken = 0;
 
@@ -404,7 +411,52 @@ export class LibraryPane extends Component {
 	openAlbum(id: string, name: string): void {
 		this.activeSubTab = "albums";
 		this.stack = [{ kind: "root" }, { kind: "album", id, name }];
+		// External jump (link): bring the playing row into view once loaded.
+		this.pendingScrollToCurrent = true;
 		this.render();
+	}
+
+	/**
+	 * Mark the playing song in the open lists. Cheap once the same row stays
+	 * mounted; `scroll` also brings the row into view (external album jumps).
+	 */
+	syncCurrentSong(scroll = false): void {
+		const id = this.plugin.player.getState().track?.id ?? null;
+		// Fast path: nothing rebuilt since the last scan.
+		if (id === this.highlightedSongId && this.highlightScanned) {
+			if (scroll && this.highlightedRow?.isConnected) {
+				this.scrollRowIntoView(this.highlightedRow);
+			}
+			return;
+		}
+		this.highlightedRow?.removeClass("stereo-list-row-current");
+		this.highlightedRow = null;
+		this.highlightedSongId = id;
+		this.highlightScanned = true;
+		if (!id) return;
+		for (const row of Array.from(
+			this.contentEl.querySelectorAll<HTMLElement>(
+				".stereo-list-row[data-song-id]"
+			)
+		)) {
+			if (row.dataset.songId !== id) continue;
+			row.addClass("stereo-list-row-current");
+			this.highlightedRow = row;
+			if (scroll) this.scrollRowIntoView(row);
+			break;
+		}
+	}
+
+	private consumePendingScrollToCurrent(): void {
+		if (!this.pendingScrollToCurrent) return;
+		this.pendingScrollToCurrent = false;
+		this.syncCurrentSong(true);
+	}
+
+	private scrollRowIntoView(row: HTMLElement): void {
+		const top =
+			row.offsetTop - this.contentEl.clientHeight / 2 + row.offsetHeight / 2;
+		this.contentEl.scrollTo({ top: Math.max(0, top), behavior: "auto" });
 	}
 
 	/** Drop the cached playlist list (e.g. after saving the queue as one). */
@@ -606,6 +658,7 @@ export class LibraryPane extends Component {
 		this.contentEl.removeClass("stereo-has-scrub");
 		this.contentEl.empty();
 		this.contentEl.scrollTop = 0;
+		this.highlightScanned = false;
 
 		this.favoritesButton.toggleClass(
 			"stereo-button-active",
@@ -893,6 +946,7 @@ export class LibraryPane extends Component {
 				this.contentEl.scrollTop = scroll;
 			});
 		}
+		this.consumePendingScrollToCurrent();
 	}
 
 	private async renderAlbumsRoot(): Promise<void> {
@@ -1110,6 +1164,7 @@ export class LibraryPane extends Component {
 				this.trackRow(list, songs, i, { showNumber: false });
 			});
 		}
+		this.consumePendingScrollToCurrent();
 	}
 
 	private sectionHeading(text: string): void {
@@ -1210,6 +1265,7 @@ export class LibraryPane extends Component {
 				},
 			});
 		});
+		this.consumePendingScrollToCurrent();
 	}
 
 	private async renderPlaylistPage(id: string): Promise<void> {
@@ -1263,6 +1319,7 @@ export class LibraryPane extends Component {
 				},
 			});
 		});
+		this.consumePendingScrollToCurrent();
 	}
 
 	// --- favorites plumbing (shared by detail-page hearts and context menus) ---
@@ -1487,6 +1544,12 @@ export class LibraryPane extends Component {
 		const external = isExternalId(song.id);
 		const row = list.createDiv({ cls: "stereo-list-row" });
 		row.toggleClass("stereo-list-row-external", external);
+		row.dataset.songId = song.id;
+		if (song.id === this.plugin.player.getState().track?.id) {
+			row.addClass("stereo-list-row-current");
+			this.highlightedSongId = song.id;
+			this.highlightedRow = row;
+		}
 		if (options.showNumber) {
 			row.createSpan({
 				cls: "stereo-list-row-number",

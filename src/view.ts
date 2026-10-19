@@ -318,6 +318,7 @@ export class StereoView extends ItemView {
 		);
 		this.unsubscribe = this.plugin.player.subscribe((state) => {
 			this.render(state);
+			this.library.syncCurrentSong();
 		});
 	}
 

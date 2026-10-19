@@ -3,6 +3,12 @@ import { HistoryStore, historyConnection, type HistoryEntry } from "./history";
 import { buildStationBatch, type StationSeed } from "./station";
 import type { Song, SubsonicClient } from "./subsonic";
 
+/**
+ * Mouse-wheel seek increment (seconds). Deliberately fixed: the Seek step
+ * setting only drives the clickable time labels, not the wheel.
+ */
+export const WHEEL_SEEK_SECONDS = 5;
+
 export type RepeatMode = "off" | "queue" | "track";
 
 /** Where a queue came from, used to share the album/playlist instead of a snapshot. */

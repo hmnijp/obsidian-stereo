@@ -134,6 +134,8 @@ export interface StereoSettings {
 	scrobbleEnabled: boolean;
 	/** Show the volume button and popover; when off, output stays at 100%. */
 	volumeControl: boolean;
+	/** Seconds the time labels and the seek-bar wheel jump by. */
+	seekStep: number;
 	/** Show the dice button in the extras row. */
 	showRandomButton: boolean;
 	/** Show the repeat button in the extras row or transport row. */
@@ -152,6 +154,8 @@ export interface StereoSettings {
 	showNavidromeButton: boolean;
 	/** Show the button that downloads the current track to the clipboard. */
 	showDownloadButton: boolean;
+	/** Show the button that opens the player in a separate desktop window. */
+	showNewWindowButton: boolean;
 	/** Move repeat and shuffle beside Previous/Next instead of the extras row. */
 	repeatShuffleInTransport: boolean;
 	/** Reopen the left/right sidebar panes that were open when the plugin unloaded. */
@@ -166,6 +170,10 @@ export interface StereoSettings {
 	statusBarScale: number;
 	/** Persisted open state of the status-bar mini-player queue. */
 	statusBarQueueOpen: boolean;
+	/** Persisted open state of the status-bar mini-player lyrics. */
+	statusBarLyricsOpen: boolean;
+	/** Rows the status-bar queue and lyrics show before scrolling. */
+	statusBarExtraRows: number;
 	/** Show 1–5 star ratings in track lists. */
 	showRating: boolean;
 	/** Show rating and favorite controls in the album-art corners. */
@@ -211,6 +219,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	preferWanForBrowser: true,
 	scrobbleEnabled: true,
 	volumeControl: true,
+	seekStep: 5,
 	showRandomButton: true,
 	showRepeatButton: true,
 	showShuffleButton: true,
@@ -220,6 +229,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showShareButton: true,
 	showNavidromeButton: true,
 	showDownloadButton: true,
+	showNewWindowButton: true,
 	repeatShuffleInTransport: false,
 	restoreOpenViews: true,
 	showStatusBarPlayer: true,
@@ -227,6 +237,8 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	showStatusBarServers: true,
 	statusBarScale: 100,
 	statusBarQueueOpen: false,
+	statusBarLyricsOpen: false,
+	statusBarExtraRows: 7,
 	showRating: false,
 	showArtOverlays: true,
 	showRatingButton: true,
@@ -355,6 +367,7 @@ const VIEW_REFRESH_KEYS = new Set<string>([
 	"showShareButton",
 	"showNavidromeButton",
 	"showDownloadButton",
+	"showNewWindowButton",
 	"repeatShuffleInTransport",
 	"showRating",
 	"showArtOverlays",
@@ -464,9 +477,18 @@ export class StereoSettingTab extends PluginSettingTab {
 						control: { type: "toggle", key: "scrobbleEnabled" },
 					},
 					{
-						name: "Volume control",
-						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
-						control: { type: "toggle", key: "volumeControl" },
+						name: "Seek step",
+						desc: "Seconds the elapsed and remaining time labels skip when clicked. The mouse wheel over the seek bar always moves 5 seconds.",
+						render: (setting) =>
+							this.stepper(
+								setting,
+								{ min: 1, max: 60, step: 1 },
+								() => this.plugin.settings.seekStep,
+								async (value) => {
+									this.plugin.settings.seekStep = value;
+									await this.plugin.saveSettings();
+								}
+							),
 					},
 					{
 						name: "Station batch size",
@@ -539,6 +561,16 @@ export class StereoSettingTab extends PluginSettingTab {
 						control: { type: "toggle", key: "showDownloadButton" },
 					},
 					{
+						name: "Open in new window button",
+						desc: "Show the button that opens the player in a separate desktop window. This setting does not affect the status-bar player.",
+						control: { type: "toggle", key: "showNewWindowButton" },
+					},
+					{
+						name: "Volume control",
+						desc: "Show the volume button. When off, playback stays at 100% and volume is controlled by the device.",
+						control: { type: "toggle", key: "volumeControl" },
+					},
+					{
 						name: "Repeat and shuffle in transport row",
 						desc: "Place repeat to the left of Previous and shuffle to the right of Next, using the transport button size. When off, both stay in the extras row.",
 						control: { type: "toggle", key: "repeatShuffleInTransport" },
@@ -579,6 +611,21 @@ export class StereoSettingTab extends PluginSettingTab {
 								() => this.plugin.settings.statusBarScale,
 								async (value) => {
 									this.plugin.settings.statusBarScale = value;
+									await this.plugin.saveSettings();
+									this.plugin.applyStatusBarSetting();
+								}
+							),
+					},
+					{
+						name: "Queue and lyrics rows",
+						desc: "How many rows the status-bar queue and lyrics show before scrolling. The mini player grows upward by this many rows.",
+						render: (setting) =>
+							this.stepper(
+								setting,
+								{ min: 3, max: 20, step: 1 },
+								() => this.plugin.settings.statusBarExtraRows,
+								async (value) => {
+									this.plugin.settings.statusBarExtraRows = value;
 									await this.plugin.saveSettings();
 									this.plugin.applyStatusBarSetting();
 								}

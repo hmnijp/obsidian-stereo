@@ -308,7 +308,8 @@ body {
 	flex: 1;
 	align-items: center;
 	justify-content: center;
-	padding: var(--size-4-2);
+	/* No horizontal padding: the square art gets the full content width. */
+	padding: var(--size-4-2) 0;
 }
 
 .stereo-art {
@@ -399,14 +400,16 @@ body {
 	display: flex;
 	flex: 1;
 	min-height: 120px;
-	padding: var(--size-4-2);
+	/* No horizontal padding: the queue (and its scrollbar) reaches the pane
+	   content edge instead of sitting in an extra 8px + 12px inset. */
+	padding: var(--size-4-2) 0;
 }
 
 .stereo-now-queue {
 	flex: 1;
 	min-width: 0;
 	overflow-y: auto;
-	padding: 0 var(--size-4-3);
+	padding: 0;
 }
 
 .stereo-now-queue-row {
@@ -489,8 +492,9 @@ body {
    rating/favorite overlays can sit in its corners in all presentation modes. */
 .stereo-art-stage {
 	position: relative;
-	width: min(92%, var(--stereo-art-size, 340px));
+	width: min(100%, var(--stereo-art-size, 340px));
 	aspect-ratio: 1;
+	cursor: pointer;
 }
 
 .stereo-art-stage > .stereo-art,
@@ -638,7 +642,6 @@ body {
 .stereo-track-row {
 	display: flex;
 	align-items: center;
-	justify-content: center;
 	gap: var(--size-4-2);
 	min-width: 0;
 }
@@ -678,6 +681,7 @@ body {
 
 .stereo-track-info {
 	display: flex;
+	flex: 1;
 	flex-direction: column;
 	gap: var(--size-2-1);
 	min-width: 0;
@@ -688,10 +692,46 @@ body {
 
 .stereo-track-title {
 	font-weight: var(--font-bold);
-	font-size: var(--font-ui-large);
+	font-size: var(--font-ui-medium);
 	color: var(--text-normal);
 	text-align: center;
 	line-height: var(--line-height-tight);
+}
+
+/* Small-cover mode: the cover stays at the left edge and the heart is pinned
+   to the right; the text block in between centres its own lines. */
+.stereo-button.stereo-track-heart {
+	position: relative;
+	width: 26px;
+	height: 26px;
+	padding: 2px;
+	color: var(--text-muted);
+	transition: color 120ms ease;
+}
+
+.stereo-track-heart svg {
+	width: 20px;
+	height: 20px;
+}
+
+.stereo-track-heart:hover {
+	color: var(--text-normal);
+}
+
+.stereo-track-heart.stereo-button-active {
+	color: var(--interactive-accent);
+}
+
+.stereo-track-heart.stereo-button-active:hover {
+	color: var(--interactive-accent);
+}
+
+.stereo-track-heart-rating .stereo-favorite-value {
+	display: flex;
+}
+
+.stereo-track-heart-rating.stereo-heart-rating-open .stereo-track-rating-picker {
+	display: flex;
 }
 
 .stereo-track-artist,
@@ -726,12 +766,40 @@ body {
 	min-width: 0; /* let the slider shrink instead of overflowing the row */
 }
 
+/* The wheel target is the zone around the bar, sized to the thumb, so
+   scrolling works a little above and below the thin track. */
+.stereo-seek-zone {
+	display: flex;
+	flex: 1;
+	min-width: 0;
+	align-items: center;
+	min-height: var(--slider-thumb-height, 18px);
+}
+
+.stereo-seek-zone .stereo-seek {
+	flex: 1;
+	min-width: 0;
+}
+
+/* Status popup seek: extra breathing room above/below and a smaller handle. */
+.stereo-status-seek-row {
+	margin-block: var(--size-4-1);
+	--slider-thumb-height: 12px;
+	--slider-thumb-width: 12px;
+	--slider-thumb-y: -3px;
+	--slider-thumb-radius: 12px;
+}
+
 .stereo-time {
 	font-size: var(--font-ui-smaller);
 	color: var(--text-muted);
 	white-space: nowrap;
 	min-width: 2.8em;
 	text-align: center;
+	/* Clickable: left label rewinds, right label skips ahead. */
+	cursor: pointer;
+	user-select: none;
+	-webkit-user-select: none;
 }
 
 /* Transport — flat glyphs, sized like a real player's controls. */
@@ -777,6 +845,62 @@ body {
 .stereo-transport-row .stereo-play-button svg {
 	width: 34px;
 	height: 34px;
+}
+
+/* Very narrow panes: shrink the central group too, so the side modes keep
+   their share of the row instead of colliding with prev/next. */
+@container (max-width: 160px) {
+	.stereo-transport-main {
+		gap: var(--size-4-1);
+	}
+
+	.stereo-transport-main .stereo-button svg {
+		width: 18px;
+		height: 18px;
+	}
+
+	.stereo-transport-main .stereo-play-button svg {
+		width: 28px;
+		height: 28px;
+	}
+}
+
+/* Mode toggles on the transport sides (both players) are secondary controls:
+   a smaller glyph and a dimmed idle color keep them from competing with
+   prev/play/next. */
+.stereo-transport-side .stereo-button,
+.stereo-status-transport-side .stereo-button {
+	color: var(--text-muted);
+	opacity: 0.7;
+	transition: color 120ms ease, opacity 120ms ease;
+}
+
+.stereo-transport-side .stereo-button:hover,
+.stereo-transport-side .stereo-button:focus-visible,
+.stereo-status-transport-side .stereo-button:hover,
+.stereo-status-transport-side .stereo-button:focus-visible {
+	color: var(--text-normal);
+	opacity: 1;
+}
+
+.stereo-transport-side .stereo-button.stereo-button-active,
+.stereo-status-transport-side .stereo-button.stereo-button-active {
+	color: var(--interactive-accent);
+	opacity: 1;
+}
+
+/* The side buttons shrink with their zone instead of spilling over the
+   central group; the glyph follows the row width down to a legible floor. */
+.stereo-transport-side .stereo-button {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 100%;
+	padding: clamp(1px, 0.8cqw, 2px);
+}
+
+.stereo-transport-side .stereo-button svg {
+	width: clamp(10px, 6cqw, 16px);
+	height: clamp(10px, 6cqw, 16px);
 }
 
 /* Muted state colors: pause is red, play is Navidrome blue. Opacity keeps
@@ -1011,7 +1135,9 @@ body {
 	display: flex;
 }
 
-.stereo-song-heart.stereo-button-active .stereo-favorite-value {
+.stereo-song-heart.stereo-button-active .stereo-favorite-value,
+.stereo-mini-heart.stereo-button-active .stereo-favorite-value,
+.stereo-track-heart.stereo-button-active .stereo-favorite-value {
 	color: var(--text-on-accent, var(--background-primary));
 }
 
@@ -1610,6 +1736,16 @@ body {
 	background: var(--background-modifier-hover);
 }
 
+/* The playing track: accent title, quiet hover background. */
+.stereo-list-row-current {
+	background: var(--background-modifier-hover);
+}
+
+.stereo-list-row-current .stereo-list-row-title {
+	color: var(--interactive-accent);
+	font-weight: var(--font-semibold);
+}
+
 .stereo-list-row-icon {
 	display: flex;
 	color: var(--text-muted);
@@ -1818,13 +1954,13 @@ body {
 }
 
 .stereo-mini-bottom .stereo-play-toggle svg {
-	width: 24px;
-	height: 24px;
+	width: 28px;
+	height: 28px;
 }
 
 .stereo-mini-bottom .stereo-mini-skip svg {
-	width: 12px;
-	height: 12px;
+	width: 18px;
+	height: 18px;
 }
 
 .stereo-mini-heart {
@@ -1844,6 +1980,16 @@ body {
 	min-width: 2.6em;
 	text-align: right;
 	font-variant-numeric: tabular-nums;
+}
+
+/* The right-hand timer hugs the slider from the other side. */
+.stereo-mini-remaining {
+	text-align: left;
+}
+
+/* Pull the left timer into the pane's left padding, closer to the edge. */
+.stereo-mini-bottom > .stereo-mini-time:first-child {
+	margin-inline-start: calc(-1 * var(--size-4-2));
 }
 
 .stereo-mini-thumb {
@@ -1891,9 +2037,12 @@ body {
 
 .stereo-mini-byline {
 	display: flex;
-	justify-content: center;
+	/* `safe` keeps the byline start-aligned if it ever overflows, instead of
+	   clipping the artist on the left. */
+	justify-content: safe center;
 	gap: 0.35em;
 	min-width: 0;
+	overflow: hidden;
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 	line-height: var(--line-height-tight);
@@ -1905,6 +2054,14 @@ body {
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+/* When the mini bar narrows, only the album gives way: the artist keeps its
+   full width and the separator never shrinks, so the byline reads
+   "Artist - Albu…" instead of truncating both names. */
+.stereo-mini-artist,
+.stereo-mini-sep {
+	flex-shrink: 0;
 }
 
 .stereo-mini-link {
@@ -2239,8 +2396,9 @@ body {
 	flex-direction: column;
 	gap: var(--size-4-1);
 	width: min(280px, calc(100vw - 16px));
-	max-height: min(90vh, 720px);
-	overflow-y: auto;
+	max-height: calc(100vh - 16px);
+	/* The queue list owns the only scrollbar; the popup itself never scrolls. */
+	overflow: hidden;
 	padding: var(--size-4-3);
 	box-sizing: border-box;
 	border: 1px solid var(--background-modifier-border);
@@ -2253,6 +2411,11 @@ body {
 }
 
 .stereo-status-queue {
+	display: flex;
+	flex-direction: column;
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow: hidden;
 	padding-bottom: var(--size-2-2);
 	border-bottom: 1px solid var(--background-modifier-border);
 }
@@ -2260,15 +2423,30 @@ body {
 .stereo-status-queue-list {
 	display: flex;
 	flex-direction: column;
+	flex: 1 1 auto;
+	min-height: 0;
 	gap: 2px;
-	max-height: 222px;
+	height: var(--stereo-status-rows-height, 222px);
 	overflow-y: auto;
 }
 
-.stereo-status-queue-scroll {
-	height: 222px;
-	max-height: 222px;
-	overflow-y: auto;
+/* Lyrics share the queue's top slot in the mini player; the shared
+   .stereo-lyrics element supplies the font, colours and synced highlight. */
+.stereo-status-lyrics {
+	display: flex;
+	flex-direction: column;
+	flex: 0 1 auto;
+	height: var(--stereo-status-rows-height, 222px);
+	min-height: 0;
+	overflow: hidden;
+	padding-bottom: var(--size-2-2);
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.stereo-status-lyrics .stereo-lyrics {
+	flex: 1;
+	min-height: 0;
+	padding: 0 var(--size-4-2);
 }
 
 .stereo-status-queue-row {
@@ -2411,6 +2589,7 @@ body {
 
 .stereo-status-popup-transport {
 	gap: var(--size-4-1);
+	padding-block: var(--size-4-1);
 }
 
 .stereo-status-transport-side {
@@ -2436,13 +2615,19 @@ body {
 }
 
 .stereo-status-popup-transport .stereo-button svg {
-	width: 18px;
-	height: 18px;
+	width: 22px;
+	height: 22px;
 }
 
 .stereo-status-popup-transport .stereo-play-toggle svg {
-	width: 24px;
-	height: 24px;
+	width: 30px;
+	height: 30px;
+}
+
+/* Same secondary treatment for repeat/shuffle beside prev/play/next. */
+.stereo-status-transport-side .stereo-button svg {
+	width: 15px;
+	height: 15px;
 }
 
 .stereo-status-popup-rating {
@@ -2547,14 +2732,6 @@ body {
 	border-top: 1px solid var(--background-modifier-border);
 }
 
-.stereo-status-servers-heading {
-	padding: 0 2px var(--size-2-1);
-	color: var(--text-muted);
-	font-size: var(--font-ui-smaller);
-	letter-spacing: 0.04em;
-	text-transform: uppercase;
-}
-
 .stereo-status-server-list {
 	display: flex;
 	flex-direction: column;
@@ -2563,14 +2740,24 @@ body {
 	overflow-y: auto;
 }
 
+/* Few servers fit on one line — show the switchers side by side. */
+.stereo-status-server-list.stereo-status-servers-inline {
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: center;
+	max-height: none;
+	overflow: visible;
+}
+
 .stereo-status-server-row {
 	display: flex;
 	align-items: center;
-	gap: var(--size-4-2);
-	padding: 3px 6px;
+	gap: calc(var(--size-4-2) / 1.5);
+	padding: 2px 4px;
 	border-radius: var(--radius-s);
 	cursor: pointer;
 	color: var(--text-normal);
+	font-size: calc(1em / 1.5);
 }
 
 .stereo-status-server-row:hover {
@@ -2584,8 +2771,8 @@ body {
 
 .stereo-status-server-dot {
 	flex: 0 0 auto;
-	width: 7px;
-	height: 7px;
+	width: calc(7px / 1.5);
+	height: calc(7px / 1.5);
 	border-radius: 50%;
 	background: currentColor;
 	opacity: 0.7;

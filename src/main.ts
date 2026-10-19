@@ -167,6 +167,14 @@ export default class StereoPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "show-status-bar-player",
+			name: "Show status bar player",
+			callback: () => {
+				this.statusBar?.togglePopup();
+			},
+		});
+
+		this.addCommand({
 			id: "open-current-album-in-navidrome",
 			name: "Open current album in Navidrome",
 			callback: () => {
@@ -338,6 +346,7 @@ export default class StereoPlugin extends Plugin {
 		for (const leaf of this.app.workspace.getLeavesOfType(STEREO_VIEW_TYPE)) {
 			if (leaf.view instanceof StereoView) leaf.view.applyNowPlayingView();
 		}
+		this.statusBar?.applyLyricsSettings();
 	}
 
 	/** Apply External badge and cover-frame visibility to open players. */

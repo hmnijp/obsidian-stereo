@@ -9,7 +9,7 @@ import radioTowerSvg from "../radio-tower.svg";
 import boomboxSvg from "../boombox.svg";
 import stereoBoomboxSvg from "../stereo-boombox.svg";
 import { copyCoverToClipboard } from "./cover-clipboard";
-import { getLyrics, type Lyrics } from "./lyrics";
+import { LyricsPanel } from "./lyrics-panel";
 import { createSongHeart, syncSongHeart, attachHeartRatingHover } from "./favorite-button";
 import {
 	clearStarPreview,
@@ -33,7 +33,7 @@ import {
 } from "./song-menu";
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
-import type { PlayerState } from "./player";
+import { WHEEL_SEEK_SECONDS, type PlayerState } from "./player";
 import { NOW_PLAYING_VIEWS, type NowPlayingView } from "./settings";
 import type { Song } from "./subsonic";
 
@@ -95,6 +95,10 @@ export class StereoView extends ItemView {
 	private trackCoverPlaceholder!: HTMLElement;
 	private trackInfoEl!: HTMLElement;
 	private titleEl!: HTMLElement;
+	private trackHeartContainer!: HTMLElement;
+	private trackFavoriteButton!: HTMLButtonElement;
+	private trackRatingStars: HTMLButtonElement[] = [];
+	private trackRatingTrackId: string | null = null;
 	private artistEl!: HTMLElement;
 	private albumEl!: HTMLElement;
 	private elapsedEl!: HTMLElement;
@@ -133,24 +137,18 @@ export class StereoView extends ItemView {
 	private trackShareButton!: HTMLButtonElement;
 	private navidromeButton!: HTMLButtonElement;
 	private downloadButton!: HTMLButtonElement;
+	private newWindowButton!: HTMLButtonElement;
 	private errorEl!: HTMLElement;
 
 	// Lyrics panel (swaps in for the art area while toggled on)
 	private lyricsButton!: HTMLButtonElement;
 	private lyricsWrap!: HTMLElement;
-	private lyricsScroll!: HTMLElement;
+	private lyricsPanel!: LyricsPanel;
 	private lyricsVisible = false;
 	// Inline playback queue panel (also swaps in for the art area)
 	private nowQueueWrap!: HTMLElement;
 	private nowQueueScroll!: HTMLElement;
 	private queueVisible = false;
-	/** Track id the panel currently shows; null forces a reload. */
-	private lyricsLoadedFor: string | null = null;
-	/** Bumped per load; stale async loads bail. */
-	private lyricsToken = 0;
-	private lyricsData: Lyrics | null = null;
-	private lyricsLineEls: HTMLElement[] = [];
-	private lyricsActiveLine = -1;
 
 	// Queue page
 	private queueTitleEl!: HTMLElement;
@@ -172,6 +170,7 @@ export class StereoView extends ItemView {
 	private miniAlbumEl!: HTMLElement;
 	private miniSepEl!: HTMLElement;
 	private miniElapsedEl!: HTMLElement;
+	private miniRemainingEl!: HTMLElement;
 	private miniSeekSlider!: HTMLInputElement;
 	private miniPreviousButton!: HTMLButtonElement;
 	private miniPlayButton!: HTMLButtonElement;
@@ -319,6 +318,7 @@ export class StereoView extends ItemView {
 		);
 		this.unsubscribe = this.plugin.player.subscribe((state) => {
 			this.render(state);
+			this.library.syncCurrentSong();
 		});
 	}
 
@@ -511,12 +511,6 @@ export class StereoView extends ItemView {
 		void this.plugin.addCollectionToPlaylist(kind, id);
 	}
 
-	private copyToClipboard(text: string): void {
-		void navigator.clipboard.writeText(text).catch(() => {
-			new Notice("Could not copy to the clipboard.");
-		});
-	}
-
 	/** The effective Now Playing view for a track. Internet-radio streams have no
 	 * album art and can't be audio-analysed, so they override the chosen view with
 	 * the internet-radio visualization (unless it's set to follow); library tracks
@@ -607,6 +601,10 @@ export class StereoView extends ItemView {
 			"stereo-hidden",
 			!settings.showDownloadButton
 		);
+		this.newWindowButton?.toggleClass(
+			"stereo-hidden",
+			!settings.showNewWindowButton
+		);
 	}
 
 	/** Move repeat/shuffle between the extras row and the transport side zones. */
@@ -676,46 +674,29 @@ export class StereoView extends ItemView {
 	 * visible: lyrics/queue panel open, or a visualizer in the art slot. */
 	private updateTrackCoverVisibility(): void {
 		const coverArt = this.plugin.player.getState().track?.coverArt;
-		const show =
-			!!coverArt &&
-			(this.lyricsVisible ||
-				this.queueVisible ||
-				isVizView(this.nowPlayingView));
-		this.trackCoverEl.toggleClass("stereo-hidden", !show);
+		const panels =
+			this.lyricsVisible ||
+			this.queueVisible ||
+			isVizView(this.nowPlayingView);
+		this.trackCoverEl.toggleClass("stereo-hidden", !coverArt || !panels);
+		// The inline heart lives beside the title and mirrors the mini player,
+		// so it appears whenever the big art is out of the way.
+		this.trackHeartContainer?.toggleClass("stereo-hidden", !panels);
 	}
 
 	// --- lyrics ---
 
-	/** Apply configured lyrics font settings as CSS variables. */
+	/** Apply the configured lyrics font settings (shared panel owns the DOM). */
 	applyLyricsStyle(): void {
-		const { lyricsFontFamily, lyricsAlign } = this.plugin.settings;
-		this.contentEl.style.setProperty(
-			"--stereo-lyrics-font",
-			lyricsFontFamily.trim() || "inherit"
-		);
-		this.contentEl.style.setProperty("--stereo-lyrics-align", lyricsAlign);
+		this.lyricsPanel?.applyStyle();
 		this.updateLyricsSize();
 	}
 
-	/** Lyrics text size: either the fixed px setting, or — when auto-adjust is on
-	 * — scaled to the pane width so it fills the panel the way the album art
+	/** Lyrics text size: the fixed px setting, or — when auto-adjust is on —
+	 * scaled to the pane width so it fills the panel the way the album art
 	 * fills its space. Re-run on resize via updateArtSize(). */
 	private updateLyricsSize(): void {
-		const s = this.plugin.settings;
-		let px = s.lyricsFontSize;
-		if (s.lyricsAutoSize) {
-			const width = this.pages.nowPlaying?.clientWidth ?? 0;
-			if (width > 0) {
-				// Tunable: font as a fraction of pane width, clamped to a readable range.
-				const LYRICS_AUTO_RATIO = 0.05;
-				const LYRICS_AUTO_MIN = 14;
-				const LYRICS_AUTO_MAX = 40;
-				px = Math.round(
-					Math.min(LYRICS_AUTO_MAX, Math.max(LYRICS_AUTO_MIN, width * LYRICS_AUTO_RATIO))
-				);
-			}
-		}
-		this.contentEl.style.setProperty("--stereo-lyrics-size", `${px}px`);
+		this.lyricsPanel?.syncFontSize(this.pages.nowPlaying?.clientWidth ?? 0);
 	}
 
 	/** Swap the art area between the cover/visualizer, lyrics and the inline
@@ -732,166 +713,13 @@ export class StereoView extends ItemView {
 		this.updateTrackCoverVisibility();
 		this.updateArtSize();
 		if (showLyrics) {
-			void this.loadLyrics(this.plugin.player.getState().track);
+			void this.lyricsPanel?.load(this.plugin.player.getState().track);
 		}
 		if (showQueue) {
 			this.renderNowQueue(this.plugin.player.getState(), true);
 		}
 	}
 
-	private async loadLyrics(track: Song | null): Promise<void> {
-		const token = ++this.lyricsToken;
-		this.lyricsData = null;
-		this.lyricsLineEls = [];
-		this.lyricsActiveLine = -1;
-		this.lyricsLoadedFor = track?.id ?? null;
-		this.lyricsScroll.empty();
-		this.lyricsScroll.removeClass("stereo-lyrics-synced");
-
-		if (!track || track.streamUrl) {
-			this.lyricsStatus(
-				track ? "Lyrics are not available for radio." : "Nothing playing."
-			);
-			return;
-		}
-
-		this.lyricsStatus("Looking for lyrics…");
-		const lyrics = await getLyrics(
-			this.plugin.client,
-			track,
-			this.plugin.settings.lyricsOnlineLookup
-		);
-		if (token !== this.lyricsToken) return;
-
-		this.lyricsScroll.empty();
-		if (!lyrics) {
-			this.lyricsStatus("No lyrics found for this track.");
-			return;
-		}
-
-		this.lyricsData = lyrics;
-		this.lyricsScroll.toggleClass("stereo-lyrics-synced", lyrics.synced);
-		for (const line of lyrics.lines) {
-			const el = this.lyricsScroll.createDiv({
-				cls: "stereo-lyrics-line",
-				// Empty lines keep their height so verses stay visually grouped.
-				text: line.text || " ",
-			});
-			this.registerDomEvent(el, "contextmenu", (evt) => {
-				this.showLyricsMenu(evt, line.text);
-			});
-			if (lyrics.synced && line.time != null) {
-				const time = line.time;
-				this.registerDomEvent(el, "click", () => {
-					// Do not seek when the click finished a text selection.
-					const selection = el.ownerDocument.getSelection();
-					if (
-						selection &&
-						!selection.isCollapsed &&
-						selection.toString().trim()
-					) {
-						return;
-					}
-					this.plugin.player.seek(time);
-				});
-			}
-			this.lyricsLineEls.push(el);
-		}
-		this.updateLyricsHighlight(this.plugin.player.getState().position, true);
-	}
-
-	/** Right-click a lyric line: copy the line (or the current text selection)
-	 * or the whole lyrics with an `Artist - Track` header. */
-	private showLyricsMenu(evt: MouseEvent, lineText: string): void {
-		if (!this.plugin.settings.contextualCopyButtons) return;
-		const lyrics = this.lyricsData;
-		if (!lyrics) return;
-		evt.preventDefault();
-
-		const line = lineText.trim();
-		const body = lyrics.lines.map((entry) => entry.text).join("\n");
-		const track = this.plugin.player.getState().track;
-		const header = [track?.artist?.trim(), track?.title?.trim()]
-			.filter(Boolean)
-			.join(" - ");
-		const fullText = header ? `**${header}**\n\n${body}` : body;
-
-		// A selection inside the lyrics replaces "Copy line" with the selected
-		// text, so the menu reflects what the user is about to copy.
-		const selection = this.lyricsScroll.ownerDocument.getSelection();
-		const selectionInLyrics =
-			!!selection &&
-			!selection.isCollapsed &&
-			((!!selection.anchorNode &&
-				this.lyricsScroll.contains(selection.anchorNode)) ||
-				(!!selection.focusNode &&
-					this.lyricsScroll.contains(selection.focusNode)));
-		const selectedText =
-			selection && selectionInLyrics ? selection.toString() : "";
-		const copyingSelection = selectedText.trim().length > 0;
-
-		const menu = new Menu();
-		menu.addItem((item) =>
-			item
-				.setTitle(copyingSelection ? "Copy selection" : "Copy line")
-				.setIcon("copy")
-				.setDisabled(copyingSelection ? false : !line)
-				.onClick(() =>
-					this.copyToClipboard(copyingSelection ? selectedText : line)
-				)
-		);
-		menu.addItem((item) =>
-			item
-				.setTitle("Copy all lyrics")
-				.setIcon("copy")
-				.setDisabled(!body.trim())
-				.onClick(() => this.copyToClipboard(fullText))
-		);
-		menu.showAtMouseEvent(evt);
-	}
-
-	private lyricsStatus(text: string): void {
-		this.lyricsScroll.createDiv({ cls: "stereo-lyrics-empty", text });
-	}
-
-	/** Highlight and center the line for `position`; runs per timeupdate. */
-	private updateLyricsHighlight(position: number, jump: boolean): void {
-		const lyrics = this.lyricsData;
-		if (!lyrics?.synced) return;
-
-		let index = -1;
-		for (let i = 0; i < lyrics.lines.length; i++) {
-			const time = lyrics.lines[i]?.time;
-			if (time == null) continue;
-			if (time <= position + 0.2) index = i;
-			else break;
-		}
-		if (index === this.lyricsActiveLine && !jump) return;
-
-		const previous = this.lyricsLineEls[this.lyricsActiveLine];
-		previous?.removeClass("stereo-lyrics-line-active");
-		this.lyricsActiveLine = index;
-		const current = this.lyricsLineEls[index];
-		if (!current) return;
-		current.addClass("stereo-lyrics-line-active");
-
-		// Center manually — scrollIntoView would also scroll ancestor panes.
-		// Keep the view still while the user is selecting text in the lyrics.
-		const selection = this.lyricsScroll.ownerDocument.getSelection();
-		const selecting =
-			!!selection &&
-			!selection.isCollapsed &&
-			!!selection.anchorNode &&
-			this.lyricsScroll.contains(selection.anchorNode);
-		if (!selecting) {
-			const target =
-				current.offsetTop - this.lyricsScroll.clientHeight / 2 + current.clientHeight / 2;
-			this.lyricsScroll.scrollTo({
-				top: Math.max(0, target),
-				behavior: jump ? "auto" : "smooth",
-			});
-		}
-	}
 
 	// --- construction ---
 
@@ -921,6 +749,12 @@ export class StereoView extends ItemView {
 		this.registerDomEvent(this.artWrap, "contextmenu", (evt) =>
 			this.showNowPlayingMenu(evt)
 		);
+		// Left-click the cover / visualizer to play-pause. The listener sits on
+		// the stage (the shared square) rather than the wrap, so the corner
+		// rating/favorite overlays — siblings of the stage — never trigger it.
+		this.registerDomEvent(this.artStage, "click", () => {
+			void this.plugin.player.togglePlayPause();
+		});
 		// Base illustrations are bundled into main.js (store installs only
 		// receive main.js/manifest.json/styles.css, never loose plugin-folder
 		// files) and handed over as data URIs.
@@ -952,17 +786,12 @@ export class StereoView extends ItemView {
 		});
 
 		// Lyrics panel: swaps in for the art area, sized by the same variable.
+		// The shared LyricsPanel owns the scroll element (and its copy handler).
 		this.lyricsWrap = page.createDiv({ cls: "stereo-lyrics-wrap stereo-hidden" });
-		this.lyricsScroll = this.lyricsWrap.createDiv({ cls: "stereo-lyrics" });
-		// Make Ctrl/Cmd+C work on a plain DOM selection (custom views are not
-		// editors, so do not rely on Obsidian's editor clipboard handling).
-		this.registerDomEvent(this.lyricsScroll, "copy", (evt) => {
-			const selection = this.lyricsScroll.ownerDocument.getSelection();
-			const text = selection?.toString() ?? "";
-			if (!text || !evt.clipboardData) return;
-			evt.clipboardData.setData("text/plain", text);
-			evt.preventDefault();
-		});
+		this.lyricsPanel = new LyricsPanel(
+			this.plugin,
+			this.lyricsWrap.createDiv({ cls: "stereo-lyrics" })
+		);
 
 		// Inline queue panel for Now Playing. It shares the art/lyrics slot,
 		// but rows are read-only here: click (or Enter/Space) plays an entry.
@@ -1018,9 +847,40 @@ export class StereoView extends ItemView {
 			this.trackCoverPlaceholder.removeClass("stereo-hidden");
 		});
 		this.trackInfoEl = this.trackRowEl.createDiv({ cls: "stereo-track-info" });
-		this.titleEl = this.trackInfoEl.createDiv({ cls: "stereo-track-title", text: "Nothing playing" });
+		this.titleEl = this.trackInfoEl.createDiv({
+			cls: "stereo-track-title",
+			text: "Nothing playing",
+		});
 		this.artistEl = this.trackInfoEl.createDiv({ cls: "stereo-track-artist" });
 		this.albumEl = this.trackInfoEl.createDiv({ cls: "stereo-track-album" });
+		// Inline favorite/rating control, shown as the third column of the
+		// track row when the small cover replaces the big art (queue/lyrics
+		// panels or a visualizer).
+		this.trackHeartContainer = this.trackRowEl.createDiv({
+			cls: "stereo-heart-rating stereo-track-heart-rating stereo-hidden",
+		});
+		this.trackFavoriteButton = this.iconButton(
+			this.trackHeartContainer,
+			"heart",
+			"Add to favorites",
+			() => this.toggleCurrentFavorite()
+		);
+		this.trackFavoriteButton.addClass("stereo-track-heart");
+		this.trackFavoriteButton.addClass("stereo-heart-button");
+		this.trackFavoriteButton.setAttribute("aria-haspopup", "true");
+		this.trackFavoriteButton.createSpan({ cls: "stereo-favorite-value" });
+		const trackRatingPicker = this.trackHeartContainer.createDiv({
+			cls: "stereo-heart-rating-picker stereo-track-rating-picker",
+		});
+		this.trackRatingStars = createStarButtons(
+			trackRatingPicker,
+			(rating) => this.setCurrentRating(rating)
+		);
+		attachHeartRatingHover(
+			this.trackHeartContainer,
+			this.trackFavoriteButton,
+			trackRatingPicker
+		);
 		this.registerDomEvent(this.artistEl, "click", () => {
 			const track = this.plugin.player.getState().track;
 			if (!track?.artistId) return;
@@ -1040,10 +900,13 @@ export class StereoView extends ItemView {
 		// Seek row: elapsed | slider | −remaining
 		const seekRow = page.createDiv({ cls: "stereo-seek-row" });
 		this.elapsedEl = seekRow.createDiv({ cls: "stereo-time", text: "0:00" });
-		this.seekSlider = seekRow.createEl("input", {
+		// The slider sits in a taller zone so the wheel works anywhere within
+		// the thumb's height, not just on the thin track.
+		const seekZone = seekRow.createDiv({ cls: "stereo-seek-zone" });
+		this.seekSlider = seekZone.createEl("input", {
 			cls: "stereo-seek",
 			type: "range",
-			attr: { min: "0", max: "0", step: "1", "aria-label": "Seek" },
+			attr: { min: "0", max: "0", step: "1" },
 		});
 		this.remainingEl = seekRow.createDiv({ cls: "stereo-time", text: "0:00" });
 
@@ -1057,6 +920,23 @@ export class StereoView extends ItemView {
 			this.plugin.player.seek(Number(this.seekSlider.value));
 			this.seeking = false;
 		});
+		// Click the elapsed label to rewind, the remaining label to skip ahead;
+		// roll the wheel over the bar to nudge by the same step.
+		this.registerDomEvent(this.elapsedEl, "click", () => {
+			this.seekBy(-this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(this.remainingEl, "click", () => {
+			this.seekBy(this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(
+			seekZone,
+			"wheel",
+			(evt) => {
+				evt.preventDefault();
+				this.seekBy(evt.deltaY < 0 ? -WHEEL_SEEK_SECONDS : WHEEL_SEEK_SECONDS);
+			},
+			{ passive: false }
+		);
 
 		// Transport row: side zones optionally hold repeat (left) and shuffle
 		// (right); the central prev/play/next group stays centred either way.
@@ -1081,8 +961,8 @@ export class StereoView extends ItemView {
 		});
 
 		// Extras row order: repeat · shuffle · queue · lyrics · station ·
-		// random · playlist · share · Navidrome · download · rating · favorite ·
-		// volume.
+		// random · playlist · share · Navidrome · download · window · rating ·
+		// favorite · volume.
 		const extrasRow = page.createDiv({ cls: "stereo-extras-row" });
 		this.extrasRow = extrasRow;
 		this.repeatButton = this.iconButton(extrasRow, "repeat", "Repeat off", () => {
@@ -1177,6 +1057,16 @@ export class StereoView extends ItemView {
 			() => {
 				const track = this.plugin.player.getState().track;
 				if (track) void this.plugin.downloadTrack(track);
+			}
+		);
+		// Opens a second Stereo pane in a desktop popout window. The matching
+		// status-bar button is intentionally independent of this setting.
+		this.newWindowButton = this.iconButton(
+			extrasRow,
+			"monitor",
+			"Open player in new window",
+			() => {
+				void this.plugin.openPlayerInWindow();
 			}
 		);
 
@@ -1690,7 +1580,7 @@ export class StereoView extends ItemView {
 		this.miniArtistEl = byline.createSpan({ cls: "stereo-mini-artist" });
 		this.miniSepEl = byline.createSpan({
 			cls: "stereo-mini-sep stereo-hidden",
-			text: "—",
+			text: "-",
 		});
 		this.miniAlbumEl = byline.createSpan({ cls: "stereo-mini-album" });
 		this.registerDomEvent(meta, "click", () => {
@@ -1753,21 +1643,41 @@ export class StereoView extends ItemView {
 			cls: "stereo-time stereo-mini-time",
 			text: "0:00",
 		});
-		this.miniSeekSlider = bottom.createEl("input", {
+		const miniSeekZone = bottom.createDiv({ cls: "stereo-seek-zone" });
+		this.miniSeekSlider = miniSeekZone.createEl("input", {
 			cls: "stereo-seek stereo-mini-seek",
 			type: "range",
-			attr: { min: "0", max: "0", step: "1", "aria-label": "Seek" },
+			attr: { min: "0", max: "0", step: "1" },
+		});
+		this.miniRemainingEl = bottom.createDiv({
+			cls: "stereo-time stereo-mini-time stereo-mini-remaining",
+			text: "0:00",
 		});
 		this.registerDomEvent(this.miniSeekSlider, "input", () => {
 			this.miniSeeking = true;
-			this.miniElapsedEl.setText(
-				formatTime(Number(this.miniSeekSlider.value))
-			);
+			const position = Number(this.miniSeekSlider.value);
+			this.miniElapsedEl.setText(formatTime(position));
+			this.setMiniRemaining(position, Number(this.miniSeekSlider.max));
 		});
 		this.registerDomEvent(this.miniSeekSlider, "change", () => {
 			this.plugin.player.seek(Number(this.miniSeekSlider.value));
 			this.miniSeeking = false;
 		});
+		this.registerDomEvent(this.miniElapsedEl, "click", () => {
+			this.seekBy(-this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(this.miniRemainingEl, "click", () => {
+			this.seekBy(this.plugin.settings.seekStep);
+		});
+		this.registerDomEvent(
+			miniSeekZone,
+			"wheel",
+			(evt) => {
+				evt.preventDefault();
+				this.seekBy(evt.deltaY < 0 ? -WHEEL_SEEK_SECONDS : WHEEL_SEEK_SECONDS);
+			},
+			{ passive: false }
+		);
 		this.miniPreviousButton = this.iconButton(bottom, "skip-back", "Previous", () => {
 			void this.plugin.player.previous();
 		});
@@ -1895,6 +1805,7 @@ export class StereoView extends ItemView {
 		setStarsDisabled(this.artRatingStars, true);
 		setStarsDisabled(this.extrasRatingStars, true);
 		setStarsDisabled(this.miniRatingStars, true);
+		setStarsDisabled(this.trackRatingStars, true);
 		void this.plugin
 			.toggleSongRating(track, rating)
 			.catch(() => {
@@ -1905,6 +1816,7 @@ export class StereoView extends ItemView {
 				setStarsDisabled(this.artRatingStars, false);
 				setStarsDisabled(this.extrasRatingStars, false);
 				setStarsDisabled(this.miniRatingStars, false);
+				setStarsDisabled(this.trackRatingStars, false);
 				this.render(this.plugin.player.getState());
 			});
 	}
@@ -1962,6 +1874,23 @@ export class StereoView extends ItemView {
 		this.remainingEl.setText(
 			duration > 0 ? `-${formatTime(duration - position)}` : "0:00"
 		);
+	}
+
+	/** Same countdown for the mini player's right-hand seek time. */
+	private setMiniRemaining(position: number, duration: number): void {
+		this.miniRemainingEl.setText(
+			duration > 0 ? `-${formatTime(duration - position)}` : "0:00"
+		);
+	}
+
+	/**
+	 * Nudge playback by ±step seconds. Shared by the clickable time labels
+	 * (left rewinds, right skips ahead) and the mouse wheel over the seek bar.
+	 */
+	private seekBy(delta: number): void {
+		const state = this.plugin.player.getState();
+		if (!state.track) return;
+		this.plugin.player.seek(state.position + delta);
 	}
 
 	private render(state: Readonly<PlayerState>): void {
@@ -2043,6 +1972,26 @@ export class StereoView extends ItemView {
 		this.artistEl.toggleClass("stereo-link", !!state.track?.artistId);
 		this.albumEl.toggleClass("stereo-link", !!state.track?.albumId);
 
+		// Inline title heart mirrors the mini player's favorite/rating control.
+		const trackId = state.track?.id ?? null;
+		if (trackId !== this.trackRatingTrackId) {
+			this.trackRatingTrackId = trackId;
+			this.trackHeartContainer.removeClass("stereo-heart-rating-open");
+		}
+		this.trackFavoriteButton.dataset.songId = trackId ?? "";
+		this.trackFavoriteButton.dataset.songTitle = state.track?.title ?? "";
+		this.trackFavoriteButton.disabled = !hasTrack || radio;
+		syncSongHeart(
+			this.trackFavoriteButton,
+			this.plugin.favorites,
+			this.plugin.ratings,
+			hasTrack && !radio
+		);
+		if (ratingDisabled) setStarsDisabled(this.trackRatingStars, true);
+		if (!hasTrack || radio) {
+			this.trackHeartContainer.removeClass("stereo-heart-rating-open");
+		}
+
 		setIcon(this.playButton, state.playing ? "pause" : "play");
 		this.playButton.toggleClass("stereo-playing", state.playing);
 		this.playButton.disabled = !state.track;
@@ -2066,6 +2015,7 @@ export class StereoView extends ItemView {
 		if (!this.miniSeeking) {
 			this.miniSeekSlider.value = String(Math.floor(state.position));
 			this.miniElapsedEl.setText(formatTime(state.position));
+			this.setMiniRemaining(state.position, state.duration);
 		}
 		setIcon(this.miniPlayButton, state.playing ? "pause" : "play");
 		this.miniPlayButton.toggleClass("stereo-playing", state.playing);
@@ -2161,11 +2111,7 @@ export class StereoView extends ItemView {
 		this.stationButton.toggleClass("stereo-button-active", !!state.station);
 
 		if (this.lyricsVisible) {
-			if ((state.track?.id ?? null) !== this.lyricsLoadedFor) {
-				void this.loadLyrics(state.track);
-			} else {
-				this.updateLyricsHighlight(state.position, false);
-			}
+			this.lyricsPanel?.sync(state.track, state.position);
 		}
 
 		this.queueTitleEl.setText(

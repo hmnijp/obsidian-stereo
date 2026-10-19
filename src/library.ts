@@ -88,6 +88,8 @@ function artistAlbumSortOf(value: AlbumSort): AlbumSort {
 const TRACK_PAGE_SIZE = 250;
 const TRACK_FETCH_SIZE = 500;
 
+const HISTORY_PAGE_SIZE = 250;
+
 const TRACK_SORTS: { value: TrackSort; label: string }[] = [
 	{ value: "title", label: "Title" },
 	{ value: "artist", label: "Artist" },
@@ -266,6 +268,7 @@ export class LibraryPane extends Component {
 	private albumsExhausted = false;
 	private tracks: Song[] | null = null;
 	private tracksVisible = TRACK_PAGE_SIZE;
+	private historyVisible = HISTORY_PAGE_SIZE;
 	private artistIndexes: ArtistIndex[] | null = null;
 	private playlists: Playlist[] | null = null;
 	private stations: RadioStation[] | null = null;
@@ -316,7 +319,10 @@ export class LibraryPane extends Component {
 		});
 		setIcon(this.historyButton, "history");
 		this.registerDomEvent(this.historyButton, "click", () => {
-			if (this.stack[this.stack.length - 1]?.kind !== "history") this.push({ kind: "history" });
+			if (this.stack[this.stack.length - 1]?.kind === "history") return;
+			// Re-entering the page starts the list over from the newest entry.
+			this.historyVisible = HISTORY_PAGE_SIZE;
+			this.push({ kind: "history" });
 		});
 		this.shareButton = subTabBar.createEl("button", {
 			cls: "stereo-button clickable-icon",
@@ -735,9 +741,15 @@ export class LibraryPane extends Component {
 			this.emptyStatus("No recently played tracks. Songs appear here when playback starts.");
 			return;
 		}
-		this.renderedHistory.forEach((entry, index) => {
+		const visible = this.renderedHistory.slice(
+			0,
+			Math.min(this.historyVisible, this.renderedHistory.length)
+		);
+		visible.forEach((entry, index) => {
 			const { song, playedAt } = entry;
 			const row = this.contentEl.createDiv({ cls: "stereo-list-row stereo-history-row", attr: { "data-history-index": String(index) } });
+			// Newest play is number 1, so the position doubles as "how long ago".
+			row.createDiv({ cls: "stereo-list-row-number", text: String(index + 1) });
 			const cover = row.createDiv({ cls: "stereo-history-cover" });
 			setIcon(cover, "music");
 			if (song.coverArt) {
@@ -763,6 +775,20 @@ export class LibraryPane extends Component {
 				setIcon(button, icon!);
 			}
 		});
+
+		if (this.historyVisible < this.renderedHistory.length) {
+			const moreRow = this.contentEl.createDiv({ cls: "stereo-more-row" });
+			const moreButton = moreRow.createEl("button", {
+				cls: "stereo-button stereo-text-button clickable-icon",
+				text: "Load more",
+			});
+			moreButton.addEventListener("click", () => {
+				this.historyVisible += HISTORY_PAGE_SIZE;
+				const scroll = this.contentEl.scrollTop;
+				this.render();
+				this.contentEl.scrollTop = scroll;
+			});
+		}
 	}
 
 	private buildBackRow(title: string): void {

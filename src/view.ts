@@ -316,6 +316,14 @@ export class StereoView extends ItemView {
 				this.render(this.plugin.player.getState());
 			})
 		);
+		this.register(
+			this.plugin.player.availability.subscribe(() => {
+				// Verdicts arrive one probe at a time, so rebuild the queue to
+				// show the rows that were just found missing.
+				this.renderedQueue = null;
+				this.render(this.plugin.player.getState());
+			})
+		);
 		this.unsubscribe = this.plugin.player.subscribe((state) => {
 			this.render(state);
 			this.library.syncCurrentSong();
@@ -2186,6 +2194,7 @@ export class StereoView extends ItemView {
 			row.tabIndex = 0;
 			row.toggleClass("stereo-queue-row-current", i === state.index);
 			row.setAttribute("aria-label", `${i + 1}. ${song.title}. Play.`);
+			this.markQueueAvailability(row, song);
 			row.createDiv({ cls: "stereo-queue-row-number", text: String(i + 1) });
 			const meta = row.createDiv({ cls: "stereo-queue-row-meta" });
 			meta.createDiv({ cls: "stereo-queue-row-title", text: song.title });
@@ -2213,6 +2222,15 @@ export class StereoView extends ItemView {
 		const rowTop = rowRect.top - listRect.top + list.scrollTop;
 		const target = rowTop - listRect.height / 3 + rowRect.height / 2;
 		list.scrollTo({ top: Math.max(0, target), behavior: "auto" });
+	}
+
+	/** Dim a queue row whose track the active server no longer has. */
+	private markQueueAvailability(row: HTMLElement, song: Song): void {
+		if (!this.plugin.player.availability.isMissing(song.id)) return;
+		row.addClass("stereo-queue-row-unavailable");
+		row.setAttribute("title", "Not available on this server");
+		const label = row.getAttribute("aria-label");
+		if (label) row.setAttribute("aria-label", `${label} Not available on this server.`);
 	}
 
 	/** Same one-third positioning for the full Queue editor tab. */
@@ -2284,6 +2302,7 @@ export class StereoView extends ItemView {
 			const handle = row.createSpan({ cls: "stereo-queue-drag-handle", attr: { "aria-hidden": "true" } });
 			setIcon(handle, "grip-vertical");
 			row.toggleClass("stereo-queue-row-current", i === state.index);
+			this.markQueueAvailability(row, song);
 
 			// Queue position (1-based) — not the album track number.
 			row.createDiv({ cls: "stereo-queue-row-number", text: String(i + 1) });

@@ -434,6 +434,18 @@ export class SubsonicClient {
 		return { artist, albums: toArray(album) };
 	}
 
+	/** One track by id, or null when the server no longer has it (code 70). */
+	async getSong(id: string): Promise<Song | null> {
+		try {
+			const body = await this.request("getSong", { id });
+			return (body.song as Song | undefined) ?? null;
+		} catch (error) {
+			// 70 is Subsonic's "the requested data was not found".
+			if (error instanceof SubsonicError && error.code === 70) return null;
+			throw error;
+		}
+	}
+
 	/** One album with its tracks. */
 	async getAlbum(id: string): Promise<{ album: Album; songs: Song[] }> {
 		const body = await this.request("getAlbum", { id });

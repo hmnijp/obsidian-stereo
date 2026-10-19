@@ -156,6 +156,14 @@ export class StatusBarPlayer {
 		);
 		this.unsubs.push(plugin.favorites.subscribe(() => this.renderPopup()));
 		this.unsubs.push(plugin.ratings.subscribe(() => this.renderPopup()));
+		this.unsubs.push(
+			plugin.player.availability.subscribe(() => {
+				// Verdicts land one probe at a time; rebuild the queue so the
+				// rows that were just found missing can dim.
+				this.renderedQueue = null;
+				this.renderPopup();
+			})
+		);
 
 		this.setVisible(plugin.settings.showStatusBarPlayer);
 		this.render(plugin.player.getState());
@@ -1293,6 +1301,14 @@ export class StatusBarPlayer {
 		}
 	}
 
+	private markQueueAvailability(row: HTMLElement, song: Song): void {
+		if (!this.plugin.player.availability.isMissing(song.id)) return;
+		row.addClass("stereo-queue-row-unavailable");
+		row.setAttribute("title", "Not available on this server");
+		const label = row.getAttribute("aria-label");
+		if (label) row.setAttribute("aria-label", `${label} Not available on this server.`);
+	}
+
 	private renderQueue(state: Readonly<PlayerState>): void {
 		const list = this.queueList;
 		if (!list) return;
@@ -1327,6 +1343,7 @@ export class StatusBarPlayer {
 				"aria-label",
 				`${index + 1}. ${song.title}. Play.`
 			);
+			this.markQueueAvailability(row, song);
 			row.createSpan({
 				cls: "stereo-status-queue-number",
 				text: String(index + 1),

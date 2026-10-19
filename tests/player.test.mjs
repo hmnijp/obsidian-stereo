@@ -109,14 +109,14 @@ test("history includes completed repeats, duplicate occurrences and replay after
 	}
 });
 
-test("history retains newest 200 plays, persists metadata only and restores without playback", async (t) => {
+test("history retains newest 1000 plays, persists metadata only and restores without playback", async (t) => {
 	const { store } = setup(t);
 	let persisted;
 	store.history.setPersistence((snapshot) => { persisted = structuredClone(snapshot); });
-	for (let i = 0; i < 205; i++) await store.playTrack({ ...song(String(i)), artist: "Artist", coverArt: "art-id", starred: "2026-09-01T00:00:00Z", password: "secret", url: "https://music.invalid/?token=secret" });
+	for (let i = 0; i < 1005; i++) await store.playTrack({ ...song(String(i)), artist: "Artist", coverArt: "art-id", starred: "2026-09-01T00:00:00Z", password: "secret", url: "https://music.invalid/?token=secret" });
 	const entries = store.history.getEntries();
-	assert.equal(entries.length, 200);
-	assert.equal(entries[0].song.id, "204");
+	assert.equal(entries.length, 1000);
+	assert.equal(entries[0].song.id, "1004");
 	assert.equal(entries.at(-1).song.id, "5");
 	assert.equal(entries[0].song.coverArt, "art-id");
 	assert.equal(entries[0].song.artist, "Artist");
@@ -254,6 +254,122 @@ test("connection changes clear history and old queue IDs; passwords and appearan
 	assert.equal(store.history.getEntries().length, 0);
 });
 
+test("keeping playback across servers retains history, queue and undo", async (t) => {
+	const settings = { serverUrl: "https://one.invalid", username: "first", keepPlaybackAcrossServers: true };
+	const { store } = setup(t, settings);
+	await store.playTrack(a);
+	await store.playTrack(b);
+	const first = store.history.getEntries()[0];
+	settings.username = "second";
+	store.syncConnection();
+	assert.equal(store.history.getEntries().length, 2);
+	assert.deepEqual(store.getState().queue, [b]);
+	assert.equal(store.getState().canUndo, true);
+	assert.equal(store.history.getEntries()[0].connection, first.connection);
+	// Plays from the new account join the same list, tagged with its own key.
+	await store.playTrack(c);
+	const entries = store.history.getEntries();
+	assert.equal(entries.length, 3);
+	assert.notEqual(entries[0].connection, first.connection);
+	assert.equal(entries.at(-1).connection, first.connection);
+	// A snapshot written by the other account is accepted while the setting is on.
+	store.history.restore(
+		{ connection: first.connection, entries: [{ song: a, playedAt: 1 }] },
+		store.history.getConnection()
+	);
+	assert.deepEqual(store.history.getEntries().map((entry) => entry.song.id), ["a"]);
+	// Turning the setting off restores the old, per-account behaviour.
+	settings.keepPlaybackAcrossServers = false;
+	settings.username = "third";
+	store.syncConnection();
+	assert.deepEqual(store.history.getEntries(), []);
+	assert.deepEqual(store.getState().queue, []);
+});
+
+test("availability probes the inherited queue and drops verdicts with the old account", async (t) => {
+	const settings = { serverUrl: "https://one.invalid", username: "first", keepPlaybackAcrossServers: true };
+	const { store, client } = setup(t, settings);
+	const probed = [];
+	client.getSong = async (id) => { probed.push(id); return id === b.id ? b : null; };
+	await store.playTrack(a);
+	// Playing it on this account is proof enough, so it needs no probe there.
+	store.availability.ensure([a.id]);
+	await flush();
+	assert.deepEqual(probed, []);
+	assert.equal(store.availability.isPresent(a.id), true);
+	// Switching accounts keeps the queue but throws the old verdicts away:
+	// proof from one server says nothing about the next.
+	await store.addToQueue([b, c]);
+	settings.username = "second";
+	store.syncConnection();
+	await flush();
+	assert.deepEqual(probed.sort(), ["a", "b", "c"]);
+	assert.equal(store.availability.isPresent(b.id), true);
+	assert.equal(store.availability.isMissing(c.id), true);
+	assert.equal(store.availability.isMissing(a.id), true);
+	// Ids that already have a verdict are never probed twice.
+	probed.length = 0;
+	store.availability.ensure([a.id, b.id, c.id]);
+	await flush();
+	assert.deepEqual(probed, []);
+	// Turning the setting off drops the inherited queue and its verdicts.
+	settings.keepPlaybackAcrossServers = false;
+	settings.username = "third";
+	store.syncConnection();
+	assert.equal(store.availability.isMissing(c.id), false);
+	assert.deepEqual(store.getState().queue, []);
+});
+
+test("a track the server confirms missing is skipped without an error", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getSong = async (id) => (id === b.id ? null : c);
+	await store.setQueue([a, b, c], 1);
+	audio.dispatchEvent(new Event("error"));
+	await flush();
+	assert.equal(store.availability.isMissing(b.id), true);
+	assert.equal(store.getState().track?.id, "c");
+	assert.equal(store.getState().error, null);
+});
+
+test("an unconfirmed media error keeps the track and reports it", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getSong = async () => { throw new Error("offline"); };
+	await store.setQueue([a, b, c], 1);
+	audio.dispatchEvent(new Event("error"));
+	await flush();
+	assert.equal(store.availability.isMissing(b.id), false);
+	assert.equal(store.getState().track?.id, "b");
+	assert.equal(store.getState().error, "Could not play this track.");
+	// The server answering "it is still there" is an ordinary error too.
+	client.getSong = async (id) => (id === b.id ? b : null);
+	audio.dispatchEvent(new Event("error"));
+	await flush();
+	assert.equal(store.availability.isMissing(b.id), false);
+	assert.equal(store.getState().track?.id, "b");
+	assert.equal(store.getState().error, "Could not play this track.");
+});
+
+test("known-missing tracks are stepped over before their stream is requested", async (t) => {
+	const { store, audio, client } = setup(t);
+	client.getSong = async (id) => (id === b.id ? null : c);
+	store.availability.markMissing(b.id);
+	await store.setQueue([a, b, c], 1);
+	assert.equal(store.getState().track?.id, "c");
+	assert.equal(store.getState().error, null);
+});
+
+test("a restored queue is checked against the server when keeping across servers", async (t) => {
+	const { store, client } = setup(t, { keepPlaybackAcrossServers: true });
+	const probed = [];
+	client.getSong = async (id) => { probed.push(id); return id === a.id ? a : null; };
+	store.restore({ queue: [a, b], index: 0, position: 0, volume: 0.5 });
+	assert.deepEqual(store.getState().queue.map((song) => song.id), ["a", "b"]);
+	await flush();
+	assert.deepEqual(probed.sort(), ["a", "b"]);
+	assert.equal(store.availability.isMissing(b.id), true);
+	assert.equal(store.availability.isMissing(a.id), false);
+});
+
 test("late playing events from the previous account never enter the new history", async (t) => {
 	const settings = { username: "first" };
 	const { store, audio } = setup(t, settings);
@@ -274,6 +390,7 @@ function setup(t, settings = {}) {
 		streamUrl: (id) => `https://music.invalid/${id}`,
 		getSimilarSongs: async () => [b, c, d],
 		getRandomSongs: async () => [],
+		getSong: async () => null,
 		scrobble: async () => {},
 	};
 	const store = new PlayerStore(client, () => ({ serverUrl: "https://music.invalid", username: "listener", scrobbleEnabled: false, stationBatchSize: 5, ...settings }));
@@ -506,6 +623,7 @@ test("paused restoration reports media errors and stream configuration failures"
 	store.clearQueue();
 	await store.undoQueue();
 	audio.dispatchEvent(new Event("error"));
+	await flush();
 	assert.equal(store.getState().error, "Could not play this track.");
 	store.clearQueue();
 	client.streamUrl = () => { throw new Error("Configure the server"); };
@@ -1046,6 +1164,7 @@ test("failed repeat starts and media errors stop without automatic retries", asy
 		audio.error = { code: 3 };
 		audio.dispatchEvent(new Event("error"));
 		audio.finish();
+		await flush();
 		assert.equal(store.getState().track, b);
 		assert.equal(store.getState().playing, false);
 		assert.equal(store.getState().error, "Could not play this track.");

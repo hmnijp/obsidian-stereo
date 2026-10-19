@@ -1464,6 +1464,16 @@ body {
 	text-overflow: ellipsis;
 }
 
+/* A queue entry the active server no longer has: dimmed, still selectable. */
+.stereo-queue-row-unavailable {
+	opacity: 0.55;
+}
+
+.stereo-queue-row-unavailable .stereo-queue-row-title,
+.stereo-queue-row-unavailable .stereo-status-queue-title {
+	color: var(--text-faint);
+}
+
 /* Library — sub-tabs */
 
 .stereo-subtabs {

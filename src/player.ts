@@ -1,4 +1,5 @@
 import type { StereoSettings } from "./settings";
+import { AvailabilityStore } from "./availability";
 import { HistoryStore, historyConnection, type HistoryEntry } from "./history";
 import { buildStationBatch, type StationSeed } from "./station";
 import type { Song, SubsonicClient } from "./subsonic";
@@ -96,7 +97,9 @@ const POSITION_PERSIST_INTERVAL_SECONDS = 5;
 /** A play scrobbles at half the track or after this many seconds, whichever first. */
 const SCROBBLE_AFTER_SECONDS = 240;
 /** Keep the generated random queue bounded while still allowing long backtracking. */
-const RANDOM_QUEUE_LIMIT = 100;
+const RANDOM_QUEUE_LIMIT = 1000;
+/** Tracks a single load steps over when they are known to be gone. */
+const MISSING_SKIP_LIMIT = 10;
 
 /**
  * Framework-free playback store. Owns the single `<audio>` element for the
@@ -106,6 +109,8 @@ const RANDOM_QUEUE_LIMIT = 100;
  */
 export class PlayerStore {
 	readonly history = new HistoryStore();
+	/** Per-account record of the tracks the server still has. */
+	readonly availability: AvailabilityStore;
 	private historyRecorded = false;
 	private loadedConnection = "";
 	private client: SubsonicClient;
@@ -154,6 +159,13 @@ export class PlayerStore {
 	constructor(client: SubsonicClient, getSettings: () => StereoSettings) {
 		this.client = client;
 		this.getSettings = getSettings;
+		this.availability = new AvailabilityStore(
+			client,
+			() => historyConnection(getSettings())
+		);
+		this.history.setKeepSource(
+			() => getSettings().keepPlaybackAcrossServers === true
+		);
 		this.history.restore(undefined, historyConnection(getSettings()));
 		this.audio = new Audio();
 		this.audio.preload = "auto";
@@ -186,6 +198,15 @@ export class PlayerStore {
 	syncConnection(): void {
 		if (!this.history.changeConnection(historyConnection(this.getSettings()))) return;
 		this.historyRecorded = true;
+		this.availability.syncKey();
+		// With "keep across servers" on, the previous account's history and queue
+		// stay: their tracks are marked unavailable instead of being dropped.
+		if (this.getSettings().keepPlaybackAcrossServers) {
+			// The queue came from the previous server, so ask which of its
+			// tracks the new one still has.
+			this.availability.ensure(this.state.queue.map((song) => song.id));
+			return;
+		}
 		this.invalidateUndo();
 		this.emptyQueue();
 	}
@@ -242,6 +263,12 @@ export class PlayerStore {
 				: null,
 			error: null,
 		});
+		// A retained queue may name tracks this account never had: with the
+		// keep setting on, find out which are still there so the queue can
+		// show it before anything is played.
+		if (this.getSettings().keepPlaybackAcrossServers) {
+			this.availability.ensure(snapshot.queue.map((song) => song.id));
+		}
 	}
 
 	private notify(): void {
@@ -1102,6 +1129,18 @@ export class PlayerStore {
 
 	/** Load queue[index] into the audio element. */
 	private async loadCurrent(autoplay: boolean, startAt?: number): Promise<void> {
+		// A queue inherited from another server can name tracks this one no
+		// longer has: step over the ones already known to be gone instead of
+		// letting each of them fail in the audio element first.
+		let skipped = 0;
+		while (skipped < MISSING_SKIP_LIMIT) {
+			const queue = this.state.queue;
+			const current = queue[this.state.index];
+			if (!current || !this.availability.isMissing(current.id)) break;
+			if (this.state.index + 1 >= queue.length) break;
+			skipped += 1;
+			this.update({ index: this.state.index + 1 });
+		}
 		const track = this.state.queue[this.state.index] ?? null;
 		if (!track) return;
 		const version = ++this.loadVersion;
@@ -1161,8 +1200,13 @@ export class PlayerStore {
 	private prefetchNext(): void {
 		const nextTrack = this.state.queue[this.nextIndex(true)];
 		// Never prefetch direct-URL entries (internet radio): they are live
-		// streams, so "warming" one would hold an open connection.
-		if (!nextTrack || nextTrack.streamUrl) {
+		// streams, so "warming" one would hold an open connection. A track
+		// known to be gone on this server is not worth a request either.
+		if (
+			!nextTrack ||
+			nextTrack.streamUrl ||
+			this.availability.isMissing(nextTrack.id)
+		) {
 			this.dropPrefetch();
 			return;
 		}
@@ -1218,10 +1262,16 @@ export class PlayerStore {
 	 * already-playing track. Never touches playback itself.
 	 */
 	private onPlaying = (): void => {
-		if (!this.historyRecorded && this.state.track && this.audio.src && !this.audio.paused && !this.audio.error && this.audio.readyState >= 2) {
-			this.historyRecorded = true;
-			if (this.loadedConnection === historyConnection(this.getSettings())) {
-				this.history.record(this.state.track, this.loadedConnection);
+		const track = this.state.track;
+		if (track && this.audio.src && !this.audio.paused && !this.audio.error && this.audio.readyState >= 2) {
+			const current = historyConnection(this.getSettings());
+			// Playing it proves the server has it, so it never needs a probe.
+			if (this.loadedConnection === current) this.availability.markPresent(track.id);
+			if (!this.historyRecorded) {
+				this.historyRecorded = true;
+				if (this.loadedConnection === current) {
+					this.history.record(track, this.loadedConnection);
+				}
 			}
 		}
 		if (!this.audioContext) return;
@@ -1278,6 +1328,44 @@ export class PlayerStore {
 
 	private onError = (): void => {
 		if (!this.audio.src) return;
+		const track = this.state.track;
+		// A track the server no longer has fails without a Subsonic code, so
+		// confirm it before deciding: a confirmed miss is skipped over
+		// silently, anything else is an ordinary playback error.
+		if (track && !track.streamUrl) {
+			void this.skipIfMissing(track.id, this.loadVersion);
+			return;
+		}
+		this.failPlayback();
+	};
+
+	private failPlayback(): void {
 		this.update({ playing: false, error: "Could not play this track." });
+	}
+
+	/** Confirm a failed load against the server and step over a gone track. */
+	private async skipIfMissing(id: string, version: number): Promise<void> {
+		let missing: boolean;
+		try {
+			missing = (await this.client.getSong(id)) === null;
+		} catch {
+			// A network or auth failure is no proof that the track is gone.
+			missing = false;
+		}
+		// Another track took over while the server was asked.
+		if (version !== this.loadVersion) return;
+		if (!missing) {
+			this.failPlayback();
+			return;
+		}
+		this.availability.markMissing(id);
+		const index = this.nextIndex(false);
+		if (index < 0 || index === this.state.index) {
+			// Nowhere left to skip to: report it rather than loop.
+			this.failPlayback();
+			return;
+		}
+		this.update({ index });
+		await this.loadCurrent(true);
 	};
 }

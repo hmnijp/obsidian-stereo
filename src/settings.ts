@@ -192,6 +192,8 @@ export interface StereoSettings {
 	shareDownloadsByDefault: boolean;
 	/** Tracks added per station batch. */
 	stationBatchSize: number;
+	/** Keep the play history and the queue when the active server changes. */
+	keepPlaybackAcrossServers: boolean;
 	nowPlayingView: NowPlayingView;
 	/** Which visualizer internet-radio streams show (overrides nowPlayingView). */
 	radioVisualization: RadioVisualization;
@@ -248,6 +250,7 @@ export const DEFAULT_SETTINGS: StereoSettings = {
 	shareDefaultTtl: "7d",
 	shareDownloadsByDefault: false,
 	stationBatchSize: 30,
+	keepPlaybackAcrossServers: false,
 	nowPlayingView: "record",
 	radioVisualization: "radio",
 	lyricsOnlineLookup: true,
@@ -503,6 +506,17 @@ export class StereoSettingTab extends PluginSettingTab {
 									await this.plugin.saveSettings();
 								}
 							),
+					},
+				],
+			},
+			{
+				type: "group",
+				heading: "History",
+				items: [
+					{
+						name: "Keep history and queue across servers",
+						desc: "Keep the play history and the current queue when you switch to another server or edit the connection. Tracks that no longer exist on the active server are marked in the queue.",
+						control: { type: "toggle", key: "keepPlaybackAcrossServers" },
 					},
 				],
 			},

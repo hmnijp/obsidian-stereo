@@ -3,7 +3,7 @@ import { copyCoverToClipboard } from "./cover-clipboard";
 import type StereoPlugin from "./main";
 import { albumLabel, songMeta } from "./metadata";
 import { PlaylistSharePickerModal } from "./modals";
-import type { PlayerState } from "./player";
+import { WHEEL_SEEK_SECONDS, type PlayerState } from "./player";
 import {
 	createStarButtons,
 	setStarsDisabled,
@@ -485,9 +485,7 @@ export class StatusBarPlayer {
 			(event) => {
 				event.preventDefault();
 				this.seekBy(
-					event.deltaY < 0
-						? -this.plugin.settings.seekStep
-						: this.plugin.settings.seekStep
+					event.deltaY < 0 ? -WHEEL_SEEK_SECONDS : WHEEL_SEEK_SECONDS
 				);
 			},
 			{ passive: false }

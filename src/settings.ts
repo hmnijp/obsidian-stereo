@@ -473,7 +473,7 @@ export class StereoSettingTab extends PluginSettingTab {
 					},
 					{
 						name: "Seek step",
-						desc: "Seconds the elapsed and remaining time labels skip when clicked, and how far one mouse-wheel notch moves the seek bar.",
+						desc: "Seconds the elapsed and remaining time labels skip when clicked. The mouse wheel over the seek bar always moves 5 seconds.",
 						render: (setting) =>
 							this.stepper(
 								setting,

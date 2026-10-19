@@ -33,7 +33,7 @@ import {
 } from "./song-menu";
 import { Visualizer, type VisualizerMode } from "./visualizer";
 import type StereoPlugin from "./main";
-import type { PlayerState } from "./player";
+import { WHEEL_SEEK_SECONDS, type PlayerState } from "./player";
 import { NOW_PLAYING_VIEWS, type NowPlayingView } from "./settings";
 import type { Song } from "./subsonic";
 
@@ -1117,11 +1117,7 @@ export class StereoView extends ItemView {
 			"wheel",
 			(evt) => {
 				evt.preventDefault();
-				this.seekBy(
-					evt.deltaY < 0
-						? -this.plugin.settings.seekStep
-						: this.plugin.settings.seekStep
-				);
+				this.seekBy(evt.deltaY < 0 ? -WHEEL_SEEK_SECONDS : WHEEL_SEEK_SECONDS);
 			},
 			{ passive: false }
 		);
@@ -1852,11 +1848,7 @@ export class StereoView extends ItemView {
 			"wheel",
 			(evt) => {
 				evt.preventDefault();
-				this.seekBy(
-					evt.deltaY < 0
-						? -this.plugin.settings.seekStep
-						: this.plugin.settings.seekStep
-				);
+				this.seekBy(evt.deltaY < 0 ? -WHEEL_SEEK_SECONDS : WHEEL_SEEK_SECONDS);
 			},
 			{ passive: false }
 		);

@@ -95,6 +95,10 @@ export class StereoView extends ItemView {
 	private trackCoverPlaceholder!: HTMLElement;
 	private trackInfoEl!: HTMLElement;
 	private titleEl!: HTMLElement;
+	private trackHeartContainer!: HTMLElement;
+	private trackFavoriteButton!: HTMLButtonElement;
+	private trackRatingStars: HTMLButtonElement[] = [];
+	private trackRatingTrackId: string | null = null;
 	private artistEl!: HTMLElement;
 	private albumEl!: HTMLElement;
 	private elapsedEl!: HTMLElement;
@@ -676,12 +680,14 @@ export class StereoView extends ItemView {
 	 * visible: lyrics/queue panel open, or a visualizer in the art slot. */
 	private updateTrackCoverVisibility(): void {
 		const coverArt = this.plugin.player.getState().track?.coverArt;
-		const show =
-			!!coverArt &&
-			(this.lyricsVisible ||
-				this.queueVisible ||
-				isVizView(this.nowPlayingView));
-		this.trackCoverEl.toggleClass("stereo-hidden", !show);
+		const panels =
+			this.lyricsVisible ||
+			this.queueVisible ||
+			isVizView(this.nowPlayingView);
+		this.trackCoverEl.toggleClass("stereo-hidden", !coverArt || !panels);
+		// The inline heart lives beside the title and mirrors the mini player,
+		// so it appears whenever the big art is out of the way.
+		this.trackHeartContainer?.toggleClass("stereo-hidden", !panels);
 	}
 
 	// --- lyrics ---
@@ -1018,7 +1024,40 @@ export class StereoView extends ItemView {
 			this.trackCoverPlaceholder.removeClass("stereo-hidden");
 		});
 		this.trackInfoEl = this.trackRowEl.createDiv({ cls: "stereo-track-info" });
-		this.titleEl = this.trackInfoEl.createDiv({ cls: "stereo-track-title", text: "Nothing playing" });
+		const titleRow = this.trackInfoEl.createDiv({
+			cls: "stereo-track-title-row",
+		});
+		this.titleEl = titleRow.createDiv({
+			cls: "stereo-track-title",
+			text: "Nothing playing",
+		});
+		// Inline favorite/rating control, shown when the small cover replaces
+		// the big art (queue/lyrics panels or a visualizer).
+		this.trackHeartContainer = titleRow.createDiv({
+			cls: "stereo-heart-rating stereo-track-heart-rating stereo-hidden",
+		});
+		this.trackFavoriteButton = this.iconButton(
+			this.trackHeartContainer,
+			"heart",
+			"Add to favorites",
+			() => this.toggleCurrentFavorite()
+		);
+		this.trackFavoriteButton.addClass("stereo-track-heart");
+		this.trackFavoriteButton.addClass("stereo-heart-button");
+		this.trackFavoriteButton.setAttribute("aria-haspopup", "true");
+		this.trackFavoriteButton.createSpan({ cls: "stereo-favorite-value" });
+		const trackRatingPicker = this.trackHeartContainer.createDiv({
+			cls: "stereo-heart-rating-picker stereo-track-rating-picker",
+		});
+		this.trackRatingStars = createStarButtons(
+			trackRatingPicker,
+			(rating) => this.setCurrentRating(rating)
+		);
+		attachHeartRatingHover(
+			this.trackHeartContainer,
+			this.trackFavoriteButton,
+			trackRatingPicker
+		);
 		this.artistEl = this.trackInfoEl.createDiv({ cls: "stereo-track-artist" });
 		this.albumEl = this.trackInfoEl.createDiv({ cls: "stereo-track-album" });
 		this.registerDomEvent(this.artistEl, "click", () => {
@@ -1895,6 +1934,7 @@ export class StereoView extends ItemView {
 		setStarsDisabled(this.artRatingStars, true);
 		setStarsDisabled(this.extrasRatingStars, true);
 		setStarsDisabled(this.miniRatingStars, true);
+		setStarsDisabled(this.trackRatingStars, true);
 		void this.plugin
 			.toggleSongRating(track, rating)
 			.catch(() => {
@@ -1905,6 +1945,7 @@ export class StereoView extends ItemView {
 				setStarsDisabled(this.artRatingStars, false);
 				setStarsDisabled(this.extrasRatingStars, false);
 				setStarsDisabled(this.miniRatingStars, false);
+				setStarsDisabled(this.trackRatingStars, false);
 				this.render(this.plugin.player.getState());
 			});
 	}
@@ -2042,6 +2083,26 @@ export class StereoView extends ItemView {
 		);
 		this.artistEl.toggleClass("stereo-link", !!state.track?.artistId);
 		this.albumEl.toggleClass("stereo-link", !!state.track?.albumId);
+
+		// Inline title heart mirrors the mini player's favorite/rating control.
+		const trackId = state.track?.id ?? null;
+		if (trackId !== this.trackRatingTrackId) {
+			this.trackRatingTrackId = trackId;
+			this.trackHeartContainer.removeClass("stereo-heart-rating-open");
+		}
+		this.trackFavoriteButton.dataset.songId = trackId ?? "";
+		this.trackFavoriteButton.dataset.songTitle = state.track?.title ?? "";
+		this.trackFavoriteButton.disabled = !hasTrack || radio;
+		syncSongHeart(
+			this.trackFavoriteButton,
+			this.plugin.favorites,
+			this.plugin.ratings,
+			hasTrack && !radio
+		);
+		if (ratingDisabled) setStarsDisabled(this.trackRatingStars, true);
+		if (!hasTrack || radio) {
+			this.trackHeartContainer.removeClass("stereo-heart-rating-open");
+		}
 
 		setIcon(this.playButton, state.playing ? "pause" : "play");
 		this.playButton.toggleClass("stereo-playing", state.playing);

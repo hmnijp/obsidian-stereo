@@ -694,6 +694,54 @@ body {
 	line-height: var(--line-height-tight);
 }
 
+/* Small-cover mode: the favorite/rating heart sits beside the title, like the
+   mini player's top row. The title stays centred together with the heart. */
+.stereo-track-title-row {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: var(--size-4-1);
+	min-width: 0;
+}
+
+.stereo-track-title-row .stereo-track-title {
+	min-width: 0;
+}
+
+.stereo-button.stereo-track-heart {
+	position: relative;
+	width: 26px;
+	height: 26px;
+	padding: 2px;
+	color: var(--text-muted);
+	transition: color 120ms ease;
+}
+
+.stereo-track-heart svg {
+	width: 20px;
+	height: 20px;
+}
+
+.stereo-track-heart:hover {
+	color: var(--text-normal);
+}
+
+.stereo-track-heart.stereo-button-active {
+	color: var(--interactive-accent);
+}
+
+.stereo-track-heart.stereo-button-active:hover {
+	color: var(--interactive-accent);
+}
+
+.stereo-track-heart-rating .stereo-favorite-value {
+	display: flex;
+}
+
+.stereo-track-heart-rating.stereo-heart-rating-open .stereo-track-rating-picker {
+	display: flex;
+}
+
 .stereo-track-artist,
 .stereo-track-album {
 	font-size: var(--font-ui-small);
@@ -1067,7 +1115,9 @@ body {
 	display: flex;
 }
 
-.stereo-song-heart.stereo-button-active .stereo-favorite-value {
+.stereo-song-heart.stereo-button-active .stereo-favorite-value,
+.stereo-mini-heart.stereo-button-active .stereo-favorite-value,
+.stereo-track-heart.stereo-button-active .stereo-favorite-value {
 	color: var(--text-on-accent, var(--background-primary));
 }
 

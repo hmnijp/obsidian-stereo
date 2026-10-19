@@ -783,13 +783,6 @@ body {
 	text-align: center;
 }
 
-/* Keep the transport gaps as-is, but tuck the timers 4px closer to the seek
-   bar (main player, status popup and mini player all share these classes). */
-.stereo-time + .stereo-seek,
-.stereo-seek + .stereo-time {
-	margin-inline-start: calc(-1 * var(--size-2-2));
-}
-
 /* Transport — flat glyphs, sized like a real player's controls. */
 
 .stereo-transport-row {
@@ -1963,6 +1956,11 @@ body {
 /* The right-hand timer hugs the slider from the other side. */
 .stereo-mini-remaining {
 	text-align: left;
+}
+
+/* Pull the left timer into the pane's left padding, closer to the edge. */
+.stereo-mini-bottom > .stereo-mini-time:first-child {
+	margin-inline-start: calc(-1 * var(--size-4-2));
 }
 
 .stereo-mini-thumb {

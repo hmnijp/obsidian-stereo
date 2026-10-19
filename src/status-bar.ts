@@ -1475,6 +1475,38 @@ export class StatusBarPlayer {
 				select();
 			});
 		}
+		this.applyServerLayout(list);
+	}
+
+	/**
+	 * Lay the server switchers in a single row when every label fits on one
+	 * line, and stack them vertically when the row would overflow.
+	 */
+	private applyServerLayout(list: HTMLElement): void {
+		list.removeClass("stereo-status-servers-inline");
+		const rows = Array.from(
+			list.querySelectorAll<HTMLElement>(".stereo-status-server-row")
+		);
+		if (rows.length === 0) return;
+		const available = list.clientWidth;
+		if (available <= 0) return;
+		const listStyle = getComputedStyle(list);
+		const listGap = parseFloat(listStyle.columnGap || "0") || 0;
+		let needed = listGap * (rows.length - 1);
+		for (const row of rows) {
+			const rowStyle = getComputedStyle(row);
+			const padX =
+				(parseFloat(rowStyle.paddingLeft) || 0) +
+				(parseFloat(rowStyle.paddingRight) || 0);
+			const gap = parseFloat(rowStyle.columnGap || "0") || 0;
+			const dot = row.querySelector<HTMLElement>(".stereo-status-server-dot");
+			const dotWidth = dot ? dot.getBoundingClientRect().width : 0;
+			const name = row.querySelector<HTMLElement>(".stereo-status-server-name");
+			needed += padX + dotWidth + gap + (name?.scrollWidth ?? 0);
+		}
+		if (needed <= available) {
+			list.addClass("stereo-status-servers-inline");
+		}
 	}
 
 	private async selectServer(id: string): Promise<void> {

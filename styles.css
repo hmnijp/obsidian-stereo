@@ -2716,6 +2716,15 @@ body {
 	overflow-y: auto;
 }
 
+/* Few servers fit on one line — show the switchers side by side. */
+.stereo-status-server-list.stereo-status-servers-inline {
+	flex-direction: row;
+	flex-wrap: wrap;
+	align-items: center;
+	max-height: none;
+	overflow: visible;
+}
+
 .stereo-status-server-row {
 	display: flex;
 	align-items: center;

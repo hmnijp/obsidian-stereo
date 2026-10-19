@@ -617,7 +617,7 @@ export class StatusBarPlayer {
 		this.stationButton = this.iconButton(
 			extrasMain,
 			"disc-3",
-			"Start station from this track",
+			"Start a mix from this track",
 			() => this.startStation()
 		);
 		this.randomButton = this.iconButton(

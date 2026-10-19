@@ -1071,7 +1071,7 @@ export class StereoView extends ItemView {
 		this.stationButton = this.iconButton(
 			extrasRow,
 			"disc-3",
-			"Start station from this track",
+			"Start a mix from this track",
 			() => {
 				const track = this.plugin.player.getState().track;
 				if (!track || track.streamUrl) return;
@@ -1375,11 +1375,11 @@ export class StereoView extends ItemView {
 		const header = page.createDiv({ cls: "stereo-queue-header" });
 		this.queueTitleEl = header.createSpan({ cls: "stereo-queue-title", text: "Queue" });
 		const actions = header.createDiv({ cls: "stereo-queue-actions" });
-		// "More" appends another station batch; visible only while one is active.
+		// "More" appends another mix batch; visible only while one is active.
 		this.moreButton = actions.createEl("button", {
 			cls: "stereo-button stereo-text-button clickable-icon",
 			text: "More",
-			attr: { "aria-label": "Add more station tracks" },
+			attr: { "aria-label": "Add more mix tracks" },
 		});
 		this.queueShareButton = this.iconButton(
 			actions,
@@ -1404,10 +1404,10 @@ export class StereoView extends ItemView {
 			try {
 				const added = await this.plugin.player.extendStation();
 				if (added === 0) {
-					new Notice("The station has no more tracks to add.");
+					new Notice("The mix has no more tracks to add.");
 				}
 			} catch {
-				new Notice("Could not fetch more station tracks.");
+				new Notice("Could not fetch more mix tracks.");
 			} finally {
 				this.moreButton.disabled = false;
 			}
@@ -2200,7 +2200,7 @@ export class StereoView extends ItemView {
 
 		this.queueTitleEl.setText(
 			state.station
-				? `Station: ${state.station.label}`
+				? `Mix: ${state.station.label}`
 				: state.random
 					? "Random"
 					: "Queue"

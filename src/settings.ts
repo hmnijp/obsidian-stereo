@@ -299,8 +299,8 @@ export const EXTRA_BUTTONS: ReadonlyArray<{
 	},
 	{
 		id: "station",
-		name: "Station button",
-		desc: "Show the button that starts a station from the current track.",
+		name: "Mix button",
+		desc: "Show the button that starts a mix from the current track.",
 		key: "showStationButton",
 	},
 	{
@@ -680,8 +680,8 @@ export class StereoSettingTab extends PluginSettingTab {
 						},
 					},
 					{
-						name: "Station batch size",
-						desc: "Tracks added per station batch, including each More press.",
+						name: "Mix batch size",
+						desc: "Tracks added per mix batch, including each More press.",
 						control: {
 							type: "slider",
 							key: "stationBatchSize",

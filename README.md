@@ -2,7 +2,7 @@
 
 Stream music from your Navidrome or Subsonic-compatible server inside Obsidian.
 Stereo is a full music player in the sidebar: browse your library, queue albums,
-run stations, read synced lyrics, and keep the music going while you work in
+build mixes, read synced lyrics, and keep the music going while you work in
 your notes.
 
 <p align="center">
@@ -80,7 +80,7 @@ your notes.
   stay in one ranked list. Turn the marks off with
   **Search → Highlight external content**.
 - Right-click context menus everywhere: play, play next, add to queue, add to
-  playlist, go to artist/album, favorite, start station, share. The player's
+  playlist, go to artist/album, favorite, start mix, share. The player's
   track title menu can add the current track or its whole album/playlist.
 - Favorites synced with your server — heart tracks, albums, and artists from
   the player, menus, or detail pages, and browse them all on a Favorites page.
@@ -110,7 +110,7 @@ your notes.
 - Edit existing links from the share manager: description, expiry, and downloads.
 - `Allow downloads` requires Navidrome 0.64+ with `EnableDownloads` enabled.
 
-**Queue & stations**
+**Queue & mixes**
 - Full-page queue with playback modes, add-to-playlist for the whole queue, and
   persistence across Obsidian restarts. Right-click any queue entry to add that
   track to a playlist.
@@ -119,9 +119,9 @@ your notes.
   survives restarts; Next skips ahead even with repeat track. Live radio does not repeat.
 - Drag tracks to reorder, or right-click a queue entry to move it next without
   interrupting playback. Duplicate entries can be moved independently.
-- Undo the last queue clear or replacement, including station changes. Undo
+- Undo the last queue clear or replacement, including mix changes. Undo
   lasts until another queue edit or plugin restart.
-- Stations: seed from any song, album, or artist to build a batch of similar
+- Mixes: seed from any song, album, or artist to build a batch of similar
   tracks, then extend it or save it as a playlist.
 
 **Search**
@@ -137,7 +137,7 @@ your notes.
    the ribbon icon or the **Open player** command.
 
 Settings also cover player buttons (random, repeat, shuffle, favorite, add to
-playlist, station, share, Navidrome, download, volume, and whether
+playlist, mix, share, Navidrome, download, volume, and whether
 repeat/shuffle sit in the transport row), browser link address preference,
 sidebar pane restoration, the status-bar player, star ratings and cover
 overlays,
@@ -158,7 +158,7 @@ tuning.
 
 ## Data and network transparency
 
-- Music playback, browsing, favorites, scrobbling, and station building talk
+- Music playback, browsing, favorites, scrobbling, and mix building talk
   **only** to the server URLs you configure. Nothing is sent anywhere until you
   configure a server.
 - Lyrics are fetched from your server first; if your server has none for the

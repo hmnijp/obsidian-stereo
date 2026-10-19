@@ -336,7 +336,7 @@ export default class StereoPlugin extends Plugin {
 	}
 
 	/**
-	 * Start a station and report the outcome — the shared entry point for the
+	 * Start a mix and report the outcome - the shared entry point for the
 	 * player button and the context menus. `lead` is the seeded track when the
 	 * seed is a song; it plays first (or keeps playing, if it already is).
 	 */
@@ -344,12 +344,12 @@ export default class StereoPlugin extends Plugin {
 		try {
 			const queued = await this.player.startStation(seed, lead);
 			if (queued === 0) {
-				new Notice("The server had no tracks to build this station from.");
+				new Notice("The server had no tracks to build this mix from.");
 				return;
 			}
-			new Notice(`Station started: ${seed.label}`);
+			new Notice(`Mix started: ${seed.label}`);
 		} catch {
-			new Notice("Could not build the station from the server.");
+			new Notice("Could not build the mix from the server.");
 		}
 	}
 

@@ -1655,7 +1655,7 @@ export class LibraryPane extends Component {
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Start station").setIcon("disc-3").onClick(() => {
+			item.setTitle("Start mix").setIcon("disc-3").onClick(() => {
 				void this.plugin.startStation(
 					{ kind: "song", id: song.id, label: song.title, genre: song.genre },
 					song
@@ -1777,7 +1777,7 @@ export class LibraryPane extends Component {
 			})
 		);
 		menu.addItem((item) =>
-			item.setTitle("Start station").setIcon("disc-3").onClick(() => {
+			item.setTitle("Start mix").setIcon("disc-3").onClick(() => {
 				void this.plugin.startStation({
 					kind: "album",
 					id: album.id,
@@ -1833,7 +1833,7 @@ export class LibraryPane extends Component {
 	showArtistMenu(event: MouseEvent, artist: Artist): void {
 		const menu = new Menu();
 		menu.addItem((item) =>
-			item.setTitle("Start station").setIcon("disc-3").onClick(() => {
+			item.setTitle("Start mix").setIcon("disc-3").onClick(() => {
 				void this.plugin.startStation({
 					kind: "artist",
 					id: artist.id,

@@ -1,10 +1,12 @@
 import {
 	App,
 	ButtonComponent,
+	ItemView,
 	Modal,
 	Notice,
 	Setting,
 	setIcon,
+	type WorkspaceLeaf,
 } from "obsidian";
 import type StereoPlugin from "./main";
 import { ConfirmModal } from "./modals";
@@ -720,22 +722,35 @@ export class ShareEditModal extends Modal {
 }
 
 /** List and manage the account's existing share links. */
-export class SharesModal extends Modal {
+export const SHARES_VIEW_TYPE = "stereo-shares";
+
+/** Share-link manager, hosted in its own window like the settings tab. */
+export class SharesView extends ItemView {
 	private plugin: StereoPlugin;
 	private listEl!: HTMLElement;
 	private statusEl!: HTMLElement;
 	private loadToken = 0;
-	private closed = false;
 
-	constructor(app: App, plugin: StereoPlugin) {
-		super(app);
+	constructor(leaf: WorkspaceLeaf, plugin: StereoPlugin) {
+		super(leaf);
 		this.plugin = plugin;
 	}
 
-	onOpen(): void {
-		this.closed = false;
-		this.setTitle("Share links");
-		this.contentEl.addClass("stereo-share-modal");
+	getViewType(): string {
+		return SHARES_VIEW_TYPE;
+	}
+
+	getDisplayText(): string {
+		return "Share links";
+	}
+
+	getIcon(): string {
+		return "link";
+	}
+
+	async onOpen(): Promise<void> {
+		this.contentEl.empty();
+		this.contentEl.addClass("stereo-shares-view");
 		this.contentEl.createEl("p", {
 			cls: "stereo-share-hint",
 			text: "Anyone with a link can listen until it expires. Links are stored on the server.",
@@ -746,28 +761,32 @@ export class SharesModal extends Modal {
 			.setButtonText("Refresh")
 			.setIcon("refresh-cw")
 			.onClick(() => {
-				void this.load();
+				void this.refresh();
 			});
 
 		this.statusEl = this.contentEl.createDiv({ cls: "stereo-share-status" });
 		this.listEl = this.contentEl.createDiv({ cls: "stereo-share-list" });
-		void this.load();
+		await this.refresh();
 	}
 
-	onClose(): void {
-		this.closed = true;
+	async onClose(): Promise<void> {
 		this.loadToken += 1;
 		this.contentEl.empty();
 	}
 
-	private async load(): Promise<void> {
+	/** Reload when the active server changes. */
+	reloadForConnection(): void {
+		void this.refresh();
+	}
+
+	private async refresh(): Promise<void> {
 		const token = ++this.loadToken;
 		this.listEl.empty();
 		this.statusEl.removeClass("stereo-share-error");
 		this.statusEl.setText("Loading…");
 		try {
 			const shares = await this.plugin.client.getShares();
-			if (this.closed || token !== this.loadToken) return;
+			if (token !== this.loadToken) return;
 			shares.sort(
 				(left, right) =>
 					Date.parse(right.created) - Date.parse(left.created)
@@ -781,13 +800,13 @@ export class SharesModal extends Modal {
 			this.statusEl.setText("");
 			for (const share of shares) this.renderRow(share);
 		} catch (error) {
-			if (this.closed || token !== this.loadToken) return;
+			if (token !== this.loadToken) return;
 			this.statusEl.setText(describeShareError(error));
 			this.statusEl.addClass("stereo-share-error");
 			new ButtonComponent(this.statusEl)
 				.setButtonText("Retry")
 				.onClick(() => {
-					void this.load();
+					void this.refresh();
 				});
 		}
 	}
@@ -832,7 +851,7 @@ export class SharesModal extends Modal {
 		});
 		this.iconAction(actions, "pencil", "Edit link", () => {
 			new ShareEditModal(this.app, this.plugin, share, () => {
-				void this.load();
+				void this.refresh();
 			}).open();
 		});
 		this.iconAction(actions, "trash-2", "Delete link", () => {
@@ -874,7 +893,7 @@ export class SharesModal extends Modal {
 		try {
 			await this.plugin.client.deleteShare(share.id);
 			new Notice("Share link deleted.");
-			await this.load();
+			await this.refresh();
 		} catch (error) {
 			new Notice(describeShareError(error));
 		}

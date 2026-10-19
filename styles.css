@@ -2086,6 +2086,10 @@ body {
 
 /* --- Share links --- */
 
+.stereo-shares-view {
+	padding: var(--size-4-6);
+}
+
 .stereo-share-modal {
 	min-width: min(460px, 90vw);
 }

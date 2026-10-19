@@ -27,6 +27,7 @@ const result = await build({
 				constructor() {}
 			}
 			export class Modal {} export class Setting {} export class FuzzySuggestModal {}
+			export class ItemView {}
 			export class ButtonComponent {} export class Menu {} export function setIcon() {}
 			export function debounce(fn) { const call = () => { call.pending = true; }; call.cancel = () => { call.pending = false; }; call.run = () => { if (call.pending) fn(); call.pending = false; }; return call; }
 			export function requestUrl() { throw new Error("Unexpected network request"); }

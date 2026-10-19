@@ -724,7 +724,7 @@ export class ShareEditModal extends Modal {
 /** List and manage the account's existing share links. */
 export const SHARES_VIEW_TYPE = "stereo-shares";
 
-/** Share-link manager, hosted in its own window like the settings tab. */
+/** Share-link manager, opened as a tab in the current window. */
 export class SharesView extends ItemView {
 	private plugin: StereoPlugin;
 	private listEl!: HTMLElement;

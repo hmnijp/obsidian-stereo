@@ -365,7 +365,7 @@ export default class StereoPlugin extends Plugin {
 		new ShareCreateModal(this.app, this, target).open();
 	}
 
-	/** Open the share-link manager in its own window. */
+	/** Open the share-link manager as a tab in the current window. */
 	async openShares(): Promise<void> {
 		const workspace = this.app.workspace;
 		const existing = workspace.getLeavesOfType(SHARES_VIEW_TYPE)[0];
@@ -373,9 +373,9 @@ export default class StereoPlugin extends Plugin {
 			await workspace.revealLeaf(existing);
 			return;
 		}
-		if (typeof workspace.openPopoutLeaf !== "function") return;
-		const leaf = workspace.openPopoutLeaf();
+		const leaf = workspace.getLeaf("tab");
 		await leaf.setViewState({ type: SHARES_VIEW_TYPE, active: true });
+		await workspace.revealLeaf(leaf);
 	}
 
 	/** Open an artist page in the right-sidebar player. */

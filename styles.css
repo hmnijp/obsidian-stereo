@@ -2086,7 +2086,7 @@ body {
 
 /* --- Share links --- */
 
-.stereo-shares-view {
+.workspace-leaf-content .view-content.stereo-shares-view {
 	padding: var(--size-4-6);
 }
 
